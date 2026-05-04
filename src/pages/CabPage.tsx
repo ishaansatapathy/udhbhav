@@ -54,6 +54,13 @@ interface DriverDetails {
 
 type BookingStep = "select" | "assigning" | "assigned" | "riding"
 
+interface PoliceNode {
+  id: string
+  lat: number
+  lng: number
+  engagementRadius: number // metres
+}
+
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const SIM_STEP = 0.0003
@@ -120,6 +127,22 @@ const geoErrorMsg = (code: number) => ({
   3: "Location timed out — check your network or OS location settings.",
 }[code] ?? "Could not get location.")
 
+/** Generate 6 police nodes scattered around a given centre point. */
+function generatePoliceNodes(centre: Coord): PoliceNode[] {
+  const angles  = [0, 60, 120, 180, 240, 300]
+  const radii   = [0.025, 0.035, 0.03, 0.04, 0.028, 0.033] // ~3-4 km offset
+  const engage  = [3500, 4000, 3000, 4500, 3800, 3200]       // engagement radius (m)
+  return angles.map((angle, i) => {
+    const rad = (angle * Math.PI) / 180
+    return {
+      id: String.fromCharCode(65 + i),
+      lat: centre.lat + Math.sin(rad) * radii[i],
+      lng: centre.lng + Math.cos(rad) * radii[i],
+      engagementRadius: engage[i],
+    }
+  })
+}
+
 function buildCorridor(start: Coord | null, dest: Coord | null): Feature<Polygon> | null {
   if (!start || !dest) return null
   const line = turf.lineString([[start.lng, start.lat], [dest.lng, dest.lat]])
@@ -182,6 +205,9 @@ export default function CabPage() {
   const [driverDetails, setDriverDetails]     = useState<DriverDetails | null>(null)
   const [etaCountdown, setEtaCountdown]       = useState(0)
 
+  // ── Police jurisdiction state ────────────────────────────────────────────
+  const [activePoliceNodeId, setActivePoliceNodeId] = useState<string | null>(null)
+
   // ── Relay / offline state ────────────────────────────────────────────────
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [relayPhase, setRelayPhase] = useState<RelayPhase>("idle")
@@ -216,6 +242,14 @@ export default function CabPage() {
   const demoOfflineRef   = useRef(false)
   const routeCoordsRef   = useRef<Coord[]>([])
   const simRouteIdxRef   = useRef(0)
+
+  // ── Police jurisdiction refs ──────────────────────────────────────────────
+  const policeNodesRef          = useRef<PoliceNode[]>([])
+  const policeMarkersRef        = useRef<Map<string, L.CircleMarker>>(new Map())
+  const policeCirclesRef        = useRef<Map<string, L.Circle>>(new Map())
+  const policeLineRef           = useRef<L.Polyline | null>(null)
+  const activePoliceNodeIdRef   = useRef<string | null>(null)
+  const policePulseIntervalRef  = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Relay refs
   const relayLayerRef    = useRef<L.LayerGroup | null>(null)
@@ -694,7 +728,10 @@ export default function CabPage() {
     }
 
     simPosRef.current = { lat, lng }
-  }, [placeMarker, appendToPolyline, startRelaySimulation])
+
+    // Police jurisdiction check on every movement tick
+    updatePoliceJurisdiction(lat, lng)
+  }, [placeMarker, appendToPolyline, startRelaySimulation, updatePoliceJurisdiction])
 
   // ── GPS helpers ───────────────────────────────────────────────────────────
 
@@ -836,6 +873,108 @@ export default function CabPage() {
     mapInstanceRef.current?.flyTo([devLat, devLng], 12, { duration: 1.5 })
   }, [pushCoord])
 
+  // ── Police jurisdiction helpers ───────────────────────────────────────────
+
+  const clearPoliceNodes = useCallback(() => {
+    if (policePulseIntervalRef.current) { clearInterval(policePulseIntervalRef.current); policePulseIntervalRef.current = null }
+    if (policeLineRef.current) { policeLineRef.current.remove(); policeLineRef.current = null }
+    policeMarkersRef.current.forEach(m => m.remove()); policeMarkersRef.current.clear()
+    policeCirclesRef.current.forEach(c => c.remove()); policeCirclesRef.current.clear()
+    policeNodesRef.current = []
+    activePoliceNodeIdRef.current = null
+    setActivePoliceNodeId(null)
+  }, [])
+
+  const drawPoliceNodes = useCallback((nodes: PoliceNode[]) => {
+    const map = mapInstanceRef.current
+    if (!map) return
+    clearPoliceNodes()
+    policeNodesRef.current = nodes
+
+    nodes.forEach(node => {
+      // Engagement radius circle (low opacity red fill)
+      const circle = L.circle([node.lat, node.lng], {
+        radius: node.engagementRadius,
+        color: "#dc2626", weight: 1, opacity: 0.35,
+        fillColor: "#dc2626", fillOpacity: 0.07,
+        interactive: false,
+      }).addTo(map)
+      policeCirclesRef.current.set(node.id, circle)
+
+      // Node dot marker
+      const marker = L.circleMarker([node.lat, node.lng], {
+        radius: 7, fillColor: "#dc2626", color: "#fff", weight: 1.5,
+        fillOpacity: 0.85, interactive: true,
+      }).bindTooltip(`Police Node ${node.id}`, { direction: "top", className: "police-tooltip" })
+        .addTo(map)
+      policeMarkersRef.current.set(node.id, marker)
+    })
+  }, [clearPoliceNodes])
+
+  /** Activate / deactivate nodes and draw animated connection line to car. */
+  const updatePoliceJurisdiction = useCallback((carLat: number, carLng: number) => {
+    const nodes = policeNodesRef.current
+    if (!nodes.length) return
+    const map = mapInstanceRef.current
+    if (!map) return
+
+    // Find nearest node within engagement radius
+    let nearest: PoliceNode | null = null
+    let nearestDist = Infinity
+    for (const node of nodes) {
+      const d = turf.distance([carLng, carLat], [node.lng, node.lat], { units: "meters" })
+      if (d <= node.engagementRadius && d < nearestDist) {
+        nearestDist = d
+        nearest = node
+      }
+    }
+    const newActiveId = nearest?.id ?? null
+
+    if (newActiveId !== activePoliceNodeIdRef.current) {
+      const oldId = activePoliceNodeIdRef.current
+
+      // Deactivate old marker
+      if (oldId) {
+        if (policePulseIntervalRef.current) { clearInterval(policePulseIntervalRef.current); policePulseIntervalRef.current = null }
+        policeMarkersRef.current.get(oldId)?.setStyle({
+          radius: 7, fillColor: "#dc2626", color: "#fff", weight: 1.5, fillOpacity: 0.85,
+        })
+      }
+
+      // Activate new marker with pulsing glow
+      if (newActiveId) {
+        const m = policeMarkersRef.current.get(newActiveId)
+        if (m) {
+          let big = false
+          m.setStyle({ radius: 10, fillColor: "#ef4444", color: "#fca5a5", weight: 2.5, fillOpacity: 1 })
+          policePulseIntervalRef.current = setInterval(() => {
+            big = !big
+            m.setStyle({ radius: big ? 13 : 10, fillOpacity: big ? 0.7 : 1 })
+          }, 550)
+        }
+      }
+
+      activePoliceNodeIdRef.current = newActiveId
+      setActivePoliceNodeId(newActiveId)
+    }
+
+    // Update (or remove) the animated connection polyline every tick
+    if (policeLineRef.current) { policeLineRef.current.remove(); policeLineRef.current = null }
+    if (newActiveId && nearest) {
+      const line = L.polyline(
+        [[nearest.lat, nearest.lng], [carLat, carLng]],
+        { color: "#ef4444", weight: 2, dashArray: "6 10", opacity: 0.75 }
+      ).addTo(map)
+      policeLineRef.current = line
+
+      // Animate dash offset via the underlying SVG element
+      requestAnimationFrame(() => {
+        const el = (line as unknown as { _path?: SVGPathElement })._path
+        if (el) el.style.animation = "policeDash 0.9s linear infinite"
+      })
+    }
+  }, [])
+
   // ── Start Ride ────────────────────────────────────────────────────────────
 
   const handleStartRide = async () => {
@@ -880,6 +1019,10 @@ export default function CabPage() {
       setAwaitingDest(true)
 
       setBookingStep("riding")
+
+      // Draw police nodes around trip start
+      drawPoliceNodes(generatePoliceNodes({ lat, lng }))
+
       if (simMode) startSimulation(); else startWatch()
     } catch (e: unknown) {
       const code = (e as GeolocationPositionError).code ?? 0
@@ -908,12 +1051,13 @@ export default function CabPage() {
     routeCoordsRef.current = []
     simRouteIdxRef.current = 0
     clearRelay()
+    clearPoliceNodes()
     setTransmitStatus("idle")
     markerRef.current?.bindPopup("<b>Trip Ended</b>").openPopup()
     if (polylineRef.current && mapInstanceRef.current) {
       try { mapInstanceRef.current.fitBounds(polylineRef.current.getBounds(), { padding: [60, 60] }) } catch { /* short */ }
     }
-  }, [stopWatch, stopSimulation, clearRelay])
+  }, [stopWatch, stopSimulation, clearRelay, clearPoliceNodes])
 
   // ── Confirm Ride ──────────────────────────────────────────────────────────
 
@@ -1361,6 +1505,39 @@ export default function CabPage() {
                 Risk {Math.round(riskScore)} — {riskStatus}
               </motion.div>
             )}
+
+            {/* Police jurisdiction badge */}
+            <AnimatePresence>
+              {isRunning && (
+                <motion.div
+                  key={activePoliceNodeId ?? "none"}
+                  initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full bg-[#18181B]/90 backdrop-blur-md text-xs font-semibold shadow-xl whitespace-nowrap ${
+                    activePoliceNodeId
+                      ? "border border-red-500/60 text-red-400"
+                      : "border border-white/10 text-[#A1A1AA]"
+                  }`}
+                  style={activePoliceNodeId ? { boxShadow: "0 0 12px rgba(220,38,38,0.25)" } : {}}>
+                  {activePoliceNodeId ? (
+                    <>
+                      <motion.div
+                        animate={{ opacity: [0.5, 1, 0.5], scale: [1, 1.25, 1] }}
+                        transition={{ repeat: Infinity, duration: 0.9 }}
+                        className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
+                      />
+                      <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                      Node {activePoliceNodeId} Engaged
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-2 h-2 rounded-full bg-[#A1A1AA] flex-shrink-0" />
+                      <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                      No Node in Range
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </AnimatePresence>
         </div>
 
@@ -1594,7 +1771,7 @@ export default function CabPage() {
           {isRunning && (
             <motion.div
               initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-              className="absolute bottom-36 right-4 z-[1000] w-48 rounded-2xl overflow-hidden shadow-2xl"
+              className="absolute bottom-52 right-4 z-[1000] w-48 rounded-2xl overflow-hidden shadow-2xl"
               style={{ background: "rgba(18,18,22,0.92)", backdropFilter: "blur(14px)", border: `1px solid ${riskColor}40` }}>
               {/* Header */}
               <div className="flex items-center justify-between px-4 pt-3 pb-1">

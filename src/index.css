@@ -137,3 +137,21 @@
     background: #0a0a0f;
   }
 }
+
+/* Police jurisdiction – animated dash on connection polyline */
+@keyframes policeDash {
+  to { stroke-dashoffset: -16; }
+}
+
+/* Leaflet tooltip for police nodes */
+.police-tooltip {
+  background: rgba(18, 18, 22, 0.92) !important;
+  border: 1px solid #dc2626 !important;
+  color: #fca5a5 !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 3px 8px !important;
+  border-radius: 6px !important;
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.4) !important;
+}
+.police-tooltip::before { display: none !important; }
