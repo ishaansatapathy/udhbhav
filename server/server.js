@@ -266,10 +266,26 @@ registerCommunitySocketEvents(io)
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-const PORT = 4000
-server.listen(PORT, () => {
-  console.log(`\n  Sahayak Unified Server`)
-  console.log(`  Emergency + Police Station + SOS API`)
-  console.log(`  http://localhost:${PORT}`)
-  console.log(`  Press Ctrl+C to stop\n`)
-})
+const DEFAULT_PORT = Number(process.env.PORT) || 4000
+
+function startServer(port) {
+  server
+    .listen(port, () => {
+      console.log(`\n  Sahayak Unified Server`)
+      console.log(`  Emergency + Police Station + SOS API`)
+      console.log(`  http://localhost:${port}`)
+      console.log(`  Press Ctrl+C to stop\n`)
+    })
+    .once("error", (err) => {
+      if (err && err.code === "EADDRINUSE") {
+        const nextPort = port + 1
+        console.warn(`\n  Port ${port} is busy. Retrying on ${nextPort}...\n`)
+        startServer(nextPort)
+        return
+      }
+      console.error("\n  Failed to start server:", err)
+      process.exit(1)
+    })
+}
+
+startServer(DEFAULT_PORT)

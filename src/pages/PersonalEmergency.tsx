@@ -417,7 +417,7 @@ export default function PersonalEmergency() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+                        className="fixed inset-0 z-9999 flex items-center justify-center bg-black/80 backdrop-blur-sm"
                     >
                         <motion.div
                             initial={{ scale: 0.85, opacity: 0 }}
@@ -516,7 +516,7 @@ export default function PersonalEmergency() {
                         {dropdownOpen && (
                             <motion.div
                                 initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-                                className="absolute top-full left-0 right-0 mt-1 rounded-xl bg-white/[0.06] backdrop-blur-2xl border border-white/10 overflow-hidden z-30 shadow-2xl"
+                                className="absolute top-full left-0 right-0 mt-1 rounded-xl bg-white/6 backdrop-blur-2xl border border-white/10 overflow-hidden z-30 shadow-2xl"
                             >
                                 {CATEGORIES.map(c => (
                                     <button
@@ -551,7 +551,7 @@ export default function PersonalEmergency() {
                         >
                             {/* Anime.js managed pulse rings */}
                             <div className="sos-ring-inner absolute inset-0 rounded-full border-2 border-red-400" />
-                            <div className="sos-ring-outer absolute inset-[-12px] rounded-full border border-red-500/30" />
+                            <div className="sos-ring-outer absolute -inset-3 rounded-full border border-red-500/30" />
                             <Phone className="w-10 h-10 text-white drop-shadow-lg" />
                             <span className="text-white text-sm font-black tracking-wider uppercase">
                                 {sending ? "Sending..." : "Trigger Emergency"}
@@ -639,7 +639,7 @@ export default function PersonalEmergency() {
                                             className="timeline-step flex items-start gap-3 relative"
                                         >
                                             {/* Vertical line + dot */}
-                                            <div className="flex flex-col items-center flex-shrink-0 w-5">
+                                            <div className="flex w-5 shrink-0 flex-col items-center">
                                                 <div className={`step-dot w-2.5 h-2.5 rounded-full mt-1 ${dotColor} transition-colors`} />
                                                 {i < simSteps.length - 1 && (
                                                     <div className={`step-line w-px h-7 ${isDone ? lineColor : "bg-[#27272a]"} transition-colors`} style={{ transformOrigin: "top" }} />
@@ -699,12 +699,12 @@ export default function PersonalEmergency() {
                         <span className="text-sm font-bold text-white">Silent Trigger</span>
                     </div>
                     <p className="text-[#71717a] text-xs leading-relaxed">
-                        Hold the <kbd className="px-1.5 py-0.5 rounded bg-white/[0.06] border border-white/10 text-white font-mono text-[10px]">V</kbd> key
+                        Hold the <kbd className="px-1.5 py-0.5 rounded bg-white/6 border border-white/10 text-white font-mono text-[10px]">V</kbd> key
                         for 3 seconds to simulate volume-button SOS trigger.
                     </p>
                     {holdProgress > 0 && (
                         <div className="space-y-1">
-                            <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                            <div className="h-1.5 rounded-full bg-white/6 overflow-hidden">
                                 <motion.div
                                     className="h-full rounded-full"
                                     style={{
@@ -766,7 +766,7 @@ export default function PersonalEmergency() {
 
                 {/* ── Info ────────────────────────────────────────────────────── */}
                 <div className="emer-panel flex items-start gap-3 px-4 py-3 rounded-xl tactical-card text-[#52525b] text-[11px]" style={{ opacity: 0, padding: "12px 16px" }}>
-                    <Eye className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                    <Eye className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>
                         All emergency signals are routed to the centralized SOS backend and broadcast to nearby community responders and police stations in real-time.
                     </span>
@@ -807,7 +807,7 @@ export default function PersonalEmergency() {
                     {/* Image Upload */}
                     <div>
                         <label className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white/[0.04] border border-white/10
-                            text-xs text-[#a1a1aa] cursor-pointer hover:bg-white/[0.06] hover:border-orange-500/30 transition-all">
+                            text-xs text-[#a1a1aa] cursor-pointer hover:bg-white/6 hover:border-orange-500/30 transition-all">
                             <Camera className="w-3.5 h-3.5 text-orange-400" />
                             {vehicleImageName || "Upload evidence photo (optional)"}
                             <Upload className="w-3 h-3 ml-auto text-[#52525b]" />
