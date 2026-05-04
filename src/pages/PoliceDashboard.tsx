@@ -6,37 +6,63 @@ import { getSocket, releaseSocket } from "../lib/socket"
 import type { PoliceAlertPayload } from "../lib/socket"
 import type { PoliceStation, CabState } from "../lib/geo"
 import { verifyPayload } from "../lib/crypto"
-import { ShieldCheck, ShieldX, ShieldAlert } from "lucide-react"
+import { ShieldCheck, ShieldX, ShieldAlert, FileText, Car, Siren } from "lucide-react"
+import TacticalNav from "../components/TacticalNav"
 
 const INITIAL_CENTER: [number, number] = [12.9716, 77.5946]
 const INITIAL_ZOOM = 11
 
-const API_BASE = "http://localhost:4000"
+const API_BASE = import.meta.env.VITE_SERVER_URL || "http://localhost:4000"
 
 type VerifyStatus = "pending" | "verified" | "invalid" | "unsigned" | null
 
-export default function PoliceDashboard() {
-  const mapRef            = useRef<L.Map | null>(null)
-  const mapContainerRef   = useRef<HTMLDivElement>(null)
-  const stationLayerRef   = useRef<L.LayerGroup>(new L.LayerGroup())
-  const rangeLayerRef     = useRef<L.LayerGroup>(new L.LayerGroup())
-  const cabLayerRef       = useRef<L.LayerGroup>(new L.LayerGroup())
-  const alertLayerRef     = useRef<L.LayerGroup>(new L.LayerGroup())
-  const scanCircleRef     = useRef<L.Circle | null>(null)
-  const gridLayerRef      = useRef<L.LayerGroup>(new L.LayerGroup())
+interface VehicleReport {
+  id: string
+  vehicle_number: string | null
+  description: string | null
+  image_url: string | null
+  lat: number
+  lng: number
+  timestamp: number
+  status: string
+  tracking_history: { lat: number; lng: number; timestamp: number }[]
+  linkedDriverId?: string
+}
 
-  const [stations,         setStations]         = useState<PoliceStation[]>([])
-  const [selectedStation,  setSelectedStation]  = useState<string>("")
-  const [cabs,             setCabs]             = useState<Map<string, CabState & { cabId: string }>>(new Map())
-  const [isScanning,       setIsScanning]       = useState(true)
-  const [alerts,           setAlerts]           = useState<PoliceAlertPayload[]>([])
-  const [selectedAlert,    setSelectedAlert]    = useState<PoliceAlertPayload | null>(null)
-  const [verifyStatus,     setVerifyStatus]     = useState<VerifyStatus>(null)
-  const [clockStr,         setClockStr]         = useState(new Date().toLocaleString())
-  const [traceChains,      setTraceChains]      = useState<Map<string, { stationId: string; stationName: string; timestamp: number }[]>>(new Map())
+export default function PoliceDashboard() {
+  const mapRef = useRef<L.Map | null>(null)
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const stationLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
+  const rangeLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
+  const cabLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
+  const alertLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
+  const scanCircleRef = useRef<L.Circle | null>(null)
+  const gridLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
+  const vehicleLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
+
+  const [stations, setStations] = useState<PoliceStation[]>([])
+  const [selectedStation, setSelectedStation] = useState<string>("")
+  const [cabs, setCabs] = useState<Map<string, CabState & { cabId: string }>>(new Map())
+  const [isScanning, setIsScanning] = useState(true)
+  const [alerts, setAlerts] = useState<PoliceAlertPayload[]>([])
+  const [selectedAlert, setSelectedAlert] = useState<PoliceAlertPayload | null>(null)
+  const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>(null)
+  const [clockStr, setClockStr] = useState(new Date().toLocaleString())
+  const [traceChains, setTraceChains] = useState<Map<string, { stationId: string; stationName: string; timestamp: number }[]>>(new Map())
   const [predictedIncoming, setPredictedIncoming] = useState<Array<{ cabId: string; stationName: string; type: string }>>([])
-  const [alertCabs,        setAlertCabs]        = useState<Set<string>>(new Set())
+  const [alertCabs, setAlertCabs] = useState<Set<string>>(new Set())
   const [selectedCabForTrace, setSelectedCabForTrace] = useState<string | null>(null)
+  const [incidentReports, setIncidentReports] = useState<Array<{
+    id: string; source: string; category: string; description: string;
+    location: { lat: number; lng: number } | null; tripId: string | null;
+    severity: string; status: string; timestamp: number;
+  }>>([])
+  const [vehicleReports, setVehicleReports] = useState<VehicleReport[]>([])
+  const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null)
+  const [sosEmergencies, setSosEmergencies] = useState<Array<{
+    event_id: string; user_id: string; lat: number; lng: number;
+    level: string; status: string; timestamp: number; category?: string;
+  }>>([])
 
   useEffect(() => {
     const id = setInterval(() => setClockStr(new Date().toLocaleString()), 1000)
@@ -82,18 +108,19 @@ export default function PoliceDashboard() {
     cabLayerRef.current.addTo(map)
     alertLayerRef.current.addTo(map)
     gridLayerRef.current.addTo(map)
+    vehicleLayerRef.current.addTo(map)
     mapRef.current = map
 
     const drawGrid = () => {
       if (!mapRef.current) return
       gridLayerRef.current.clearLayers()
       const bounds = mapRef.current.getBounds()
-      const zoom   = mapRef.current.getZoom()
-      const gs     = Math.max(0.01, 0.1 / Math.pow(2, zoom - 10))
+      const zoom = mapRef.current.getZoom()
+      const gs = Math.max(0.01, 0.1 / Math.pow(2, zoom - 10))
       const latS = Math.floor(bounds.getSouth() / gs) * gs
-      const latN = Math.ceil(bounds.getNorth()  / gs) * gs
-      const lngW = Math.floor(bounds.getWest()  / gs) * gs
-      const lngE = Math.ceil(bounds.getEast()   / gs) * gs
+      const latN = Math.ceil(bounds.getNorth() / gs) * gs
+      const lngW = Math.floor(bounds.getWest() / gs) * gs
+      const lngE = Math.ceil(bounds.getEast() / gs) * gs
       const lineOpts = { color: "#999999", weight: 1, opacity: 0.35, pane: "grid" }
       for (let lng = lngW; lng <= lngE; lng += gs)
         gridLayerRef.current.addLayer(L.polyline([[latS, lng], [latN, lng]], lineOpts))
@@ -133,7 +160,7 @@ export default function PoliceDashboard() {
         }))
       }
     })
-    try { mapRef.current!.fitBounds(group.getBounds(), { padding: [20, 20] }) } catch {}
+    try { mapRef.current!.fitBounds(group.getBounds(), { padding: [20, 20] }) } catch { }
   }, [stations, selectedStation])
 
   useEffect(() => {
@@ -145,8 +172,8 @@ export default function PoliceDashboard() {
     let raf: number
     const t0 = Date.now()
     const tick = () => {
-      const p  = ((Date.now() - t0) % 3000) / 3000
-      const r  = 50 + p * 1950
+      const p = ((Date.now() - t0) % 3000) / 3000
+      const r = 50 + p * 1950
       if (scanCircleRef.current) map.removeLayer(scanCircleRef.current)
       scanCircleRef.current = L.circle([st.lat, st.lon], {
         radius: r, fillColor: "transparent",
@@ -207,24 +234,86 @@ export default function PoliceDashboard() {
       })
     }
 
-    sock.on("POLICE_ALERT",   onAlert)
-    sock.on("ALERT_HISTORY",  onHistory)
-    sock.on("station_cabs",   onStationCabs)
-    sock.on("cab_update",     onCabUpdate)
-    sock.on("cab_left",       onCabLeft)
+    // ── Incident Reports (unified pipeline) ──
+    const onInitialReports = (reports: typeof incidentReports) => {
+      setIncidentReports(reports)
+    }
+    const onNewReport = (report: typeof incidentReports[number]) => {
+      setIncidentReports(prev => [report, ...prev])
+    }
+    const onReportUpdated = (report: typeof incidentReports[number]) => {
+      setIncidentReports(prev => prev.map(r => r.id === report.id ? report : r))
+    }
+
+    // ── SOS Emergencies ──
+    const onInitialEmergencies = (emergencies: typeof sosEmergencies) => {
+      setSosEmergencies(emergencies)
+    }
+    const onNewEmergency = (emergency: typeof sosEmergencies[number]) => {
+      setSosEmergencies(prev => {
+        if (prev.find(e => e.event_id === emergency.event_id)) return prev
+        return [emergency, ...prev]
+      })
+    }
+    const onUpdateEmergency = (emergency: typeof sosEmergencies[number]) => {
+      setSosEmergencies(prev => prev.map(e => e.event_id === emergency.event_id ? emergency : e))
+    }
+
+    // ── Vehicle Reports ──
+    const onInitialVehicleReports = (reports: VehicleReport[]) => {
+      setVehicleReports(reports)
+    }
+    const onNewVehicleReport = (report: VehicleReport) => {
+      setVehicleReports(prev => {
+        const exists = prev.find(r => r.id === report.id)
+        if (exists) return prev.map(r => r.id === report.id ? report : r)
+        return [report, ...prev]
+      })
+    }
+    const onVehicleLocationUpdate = (update: { id: string; lat: number; lng: number; timestamp: number; status?: string }) => {
+      setVehicleReports(prev => prev.map(r => {
+        if (r.id !== update.id) return r
+        const newHistory = [...r.tracking_history, { lat: update.lat, lng: update.lng, timestamp: update.timestamp }]
+        return { ...r, lat: update.lat, lng: update.lng, status: update.status || r.status, tracking_history: newHistory }
+      }))
+    }
+
+    sock.on("POLICE_ALERT", onAlert)
+    sock.on("ALERT_HISTORY", onHistory)
+    sock.on("station_cabs", onStationCabs)
+    sock.on("cab_update", onCabUpdate)
+    sock.on("cab_left", onCabLeft)
     sock.on("trace_chain_update", onTraceChain)
     sock.on("predicted_incoming", onPredicted)
-    sock.on("silent_alert",   onSilentAlert)
+    sock.on("silent_alert", onSilentAlert)
+    sock.on("initial_reports", onInitialReports)
+    sock.on("new_report", onNewReport)
+    sock.on("report_updated", onReportUpdated)
+    sock.on("initial_emergencies", onInitialEmergencies)
+    sock.on("new_emergency", onNewEmergency)
+    sock.on("update_emergency", onUpdateEmergency)
+    sock.on("initial_vehicle_reports", onInitialVehicleReports)
+    sock.on("new_vehicle_report", onNewVehicleReport)
+    sock.on("vehicle_location_update", onVehicleLocationUpdate)
 
     return () => {
-      sock.off("POLICE_ALERT",  onAlert)
+      sock.off("POLICE_ALERT", onAlert)
       sock.off("ALERT_HISTORY", onHistory)
-      sock.off("station_cabs",  onStationCabs)
-      sock.off("cab_update",    onCabUpdate)
-      sock.off("cab_left",      onCabLeft)
+      sock.off("station_cabs", onStationCabs)
+      sock.off("cab_update", onCabUpdate)
+      sock.off("cab_left", onCabLeft)
       sock.off("trace_chain_update", onTraceChain)
       sock.off("predicted_incoming", onPredicted)
-      sock.off("silent_alert",  onSilentAlert)
+      sock.off("silent_alert", onSilentAlert)
+      sock.off("initial_reports", onInitialReports)
+      sock.off("new_report", onNewReport)
+      sock.off("report_updated", onReportUpdated)
+      sock.off("initial_emergencies", onInitialEmergencies)
+      sock.off("new_emergency", onNewEmergency)
+      sock.off("update_emergency", onUpdateEmergency)
+      sock.off("initial_vehicle_reports", onInitialVehicleReports)
+      sock.off("new_vehicle_report", onNewVehicleReport)
+      sock.off("vehicle_location_update", onVehicleLocationUpdate)
       releaseSocket()
     }
   }, [])
@@ -258,6 +347,71 @@ export default function PoliceDashboard() {
     })
   }, [cabs, alertCabs])
 
+  // ── Vehicle tracking markers + polylines on map ──
+  useEffect(() => {
+    if (!mapRef.current) return
+    vehicleLayerRef.current.clearLayers()
+
+    vehicleReports.forEach(v => {
+      const isActive = v.status === "ACTIVE_TRACKING"
+      const isOOR = v.status === "VEHICLE_OUT_OF_RANGE"
+      const isLinked = v.status === "LINKED_TO_REGISTERED_DRIVER"
+      const color = isLinked ? "#a855f7" : isOOR ? "#6b7280" : isActive ? "#ef4444" : "#f97316"
+      const flashClass = isActive ? " veh-marker-flash" : ""
+
+      // Path polyline
+      if (v.tracking_history.length > 1) {
+        const latlngs: [number, number][] = v.tracking_history.map(p => [p.lat, p.lng])
+        L.polyline(latlngs, { color, weight: 2.5, opacity: 0.7, dashArray: isOOR ? "6 4" : undefined, pane: "cabs" })
+          .addTo(vehicleLayerRef.current)
+      }
+
+      // Current position marker
+      const icon = L.divIcon({
+        html: `<div class="veh-marker-wrap${flashClass}" style="--veh-color: ${color};">
+          <div class="veh-icon">🚗</div>
+          <div class="veh-label">${v.vehicle_number || v.id}</div>
+        </div>`,
+        className: "custom-cab-marker",
+        iconSize: [50, 44],
+        iconAnchor: [25, 22],
+      })
+      L.marker([v.lat, v.lng], { icon, pane: "cabs" })
+        .bindTooltip(`${v.vehicle_number || v.id} — ${v.status.replace(/_/g, " ")}`, { className: "alert-tooltip" })
+        .addTo(vehicleLayerRef.current)
+
+      // Origin marker (small circle)
+      if (v.tracking_history.length > 0) {
+        const origin = v.tracking_history[0]
+        L.circleMarker([origin.lat, origin.lng], {
+          radius: 5, fillColor: color, color: "#fff", weight: 1, fillOpacity: 0.8, pane: "cabs",
+        }).addTo(vehicleLayerRef.current)
+      }
+    })
+  }, [vehicleReports])
+
+  // ── SOS emergency markers on map ──
+  const sosLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
+  useEffect(() => {
+    if (!mapRef.current) return
+    if (!mapRef.current.hasLayer(sosLayerRef.current)) sosLayerRef.current.addTo(mapRef.current)
+    sosLayerRef.current.clearLayers()
+    sosEmergencies.forEach(e => {
+      if (e.status !== "ACTIVE" && e.status !== "ESCALATED") return
+      const color = e.level === "HIGH" ? "#ff0000" : e.level === "MEDIUM" ? "#ff8800" : "#ffcc00"
+      L.circleMarker([e.lat, e.lng], {
+        radius: 16, fillColor: color, color, weight: 3, fillOpacity: 0.4, pane: "alerts",
+        className: "sos-map-pulse",
+      })
+        .bindTooltip(`🚨 ${e.event_id} — ${e.level}${e.category ? ` · ${e.category}` : ""}`, { className: "alert-tooltip" })
+        .addTo(sosLayerRef.current)
+      // Inner ring
+      L.circleMarker([e.lat, e.lng], {
+        radius: 8, fillColor: color, color: "#fff", weight: 2, fillOpacity: 0.8, pane: "alerts",
+      }).addTo(sosLayerRef.current)
+    })
+  }, [sosEmergencies])
+
   useEffect(() => {
     if (stations.length === 0) return
     let simStep = 0
@@ -286,26 +440,17 @@ export default function PoliceDashboard() {
 
   const stationsByArea = stations.reduce<Record<string, PoliceStation[]>>((acc, s) => {
     const area = s.area ?? "General"
-    ;(acc[area] ??= []).push(s)
+      ; (acc[area] ??= []).push(s)
     return acc
   }, {})
-  const cabArray   = Array.from(cabs.values())
+  const cabArray = Array.from(cabs.values())
   const activeCabs = cabArray.filter(c => c.insideRadius).length
 
   return (
     <div className="min-h-screen bg-gray-900 text-green-400 font-mono select-none">
-      <div className="bg-black border-b border-green-500 px-4 py-3 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold tracking-widest text-green-400">▸ Saarthi POLICE PORTAL</h1>
-          <p className="text-green-600 text-xs tracking-wider">TACTICAL COMMAND &amp; CONTROL SYSTEM</p>
-        </div>
-        <div className="flex items-center gap-6">
-          <span className="text-green-500 text-xs">{clockStr}</span>
-          <Link to="/" className="text-green-500 hover:text-green-300 border border-green-700 hover:border-green-400 px-3 py-1 text-xs rounded transition-colors">← HOME</Link>
-        </div>
-      </div>
+      <TacticalNav />
 
-      <div className="flex h-[calc(100vh-56px)]">
+      <div className="flex h-[calc(100vh-52px)]" style={{ marginTop: 52 }}>
         <div className="w-72 bg-[#0a0f0a] border-r border-green-800 p-3 overflow-y-auto space-y-3 flex-shrink-0">
           <div className="border border-green-700 rounded p-3">
             <p className="text-green-500 text-xs font-bold tracking-widest mb-2">▸ COMMAND STATION</p>
@@ -338,17 +483,34 @@ export default function PoliceDashboard() {
                 <span className={alerts.length > 0 ? "text-red-400" : "text-green-400"}>{alerts.length > 0 ? `⚠ ${alerts.length}` : "NONE"}</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-green-600">SOS Events</span>
+                <span className={sosEmergencies.length > 0 ? "text-red-400 font-bold animate-pulse" : "text-green-400"}>
+                  {sosEmergencies.filter(e => e.status === "ACTIVE").length > 0
+                    ? `🚨 ${sosEmergencies.filter(e => e.status === "ACTIVE").length} ACTIVE`
+                    : sosEmergencies.length > 0 ? `${sosEmergencies.length} TOTAL` : "NONE"}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-green-600">Silent Alerts</span>
                 <span className={alertCabs.size > 0 ? "text-red-400 font-bold" : "text-green-400"}>{alertCabs.size > 0 ? `${alertCabs.size} ACTIVE` : "NONE"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-green-600">Reports</span>
+                <span className={incidentReports.length > 0 ? "text-cyan-400" : "text-green-400"}>{incidentReports.length > 0 ? `${incidentReports.length} FILED` : "NONE"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-green-600">Activity</span>
+                <span className={vehicleReports.length > 0 ? "text-orange-400" : "text-green-400"}>
+                  {vehicleReports.length > 0 ? `${vehicleReports.filter(v => v.status === "ACTIVE_TRACKING").length} TRACKING / ${vehicleReports.length}` : "NONE"}
+                </span>
               </div>
             </div>
           </div>
 
           <button
             onClick={() => setIsScanning(v => !v)}
-            className={`w-full py-2 text-xs font-bold rounded border transition-colors ${
-              isScanning ? "bg-green-700 hover:bg-green-600 border-green-500 text-black" : "bg-transparent hover:bg-green-900 border-green-700 text-green-400"
-            }`}
+            className={`w-full py-2 text-xs font-bold rounded border transition-colors ${isScanning ? "bg-green-700 hover:bg-green-600 border-green-500 text-black" : "bg-transparent hover:bg-green-900 border-green-700 text-green-400"
+              }`}
           >
             {isScanning ? "DISABLE SCAN" : "ENABLE SCAN"}
           </button>
@@ -409,6 +571,45 @@ export default function PoliceDashboard() {
             )}
           </div>
 
+          {/* ── SOS Emergencies Panel ── */}
+          <div className="border border-red-800 rounded p-3">
+            <p className="text-red-400 text-xs font-bold tracking-widest mb-2 flex items-center gap-1.5">
+              <Siren className="w-3 h-3" /> SOS EMERGENCIES
+              {sosEmergencies.filter(e => e.status === "ACTIVE").length > 0 && (
+                <span className="ml-auto text-[10px] bg-red-500/30 text-red-300 px-1.5 py-0.5 rounded-full animate-pulse">
+                  {sosEmergencies.filter(e => e.status === "ACTIVE").length} ACTIVE
+                </span>
+              )}
+            </p>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {sosEmergencies.length === 0 ? (
+                <p className="text-green-700 text-xs">No SOS events</p>
+              ) : (
+                sosEmergencies.map(e => {
+                  const levelColor = e.level === "HIGH" ? "text-red-400 bg-red-500/10 border-red-500/25"
+                    : e.level === "MEDIUM" ? "text-orange-400 bg-orange-500/10 border-orange-500/25"
+                    : "text-yellow-400 bg-yellow-500/10 border-yellow-500/25"
+                  const statusColor = e.status === "ACTIVE" ? "text-red-400 animate-pulse" : e.status === "ESCALATED" ? "text-orange-400" : "text-green-400"
+                  return (
+                    <div key={e.event_id} className="bg-red-950/30 border border-red-900/60 rounded px-2 py-1.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-red-300 font-bold font-mono">{e.event_id}</span>
+                        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border ${levelColor}`}>{e.level}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <span className={`text-[10px] font-bold ${statusColor}`}>● {e.status}</span>
+                        <span className="text-red-800 text-[9px]">{new Date(e.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <div className="text-red-600 text-[10px] mt-0.5">
+                        📍 {e.lat.toFixed(4)}, {e.lng.toFixed(4)}{e.category ? ` · ${e.category}` : ""}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
           <div className="border border-red-800 rounded p-3">
             <p className="text-red-400 text-xs font-bold tracking-widest mb-2">▸ EMERGENCY ALERTS</p>
             <div className="space-y-1 max-h-40 overflow-y-auto">
@@ -419,9 +620,8 @@ export default function PoliceDashboard() {
                   <button
                     key={i}
                     onClick={() => setSelectedAlert(prev => prev === a ? null : a)}
-                    className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
-                      selectedAlert === a ? "bg-red-900/60 border border-red-500" : "bg-red-950/30 hover:bg-red-900/40 border border-red-900"
-                    }`}
+                    className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${selectedAlert === a ? "bg-red-900/60 border border-red-500" : "bg-red-950/30 hover:bg-red-900/40 border border-red-900"
+                      }`}
                   >
                     <div className="text-red-300 font-bold truncate">{a.payload?.tripId ?? "UNKNOWN"}</div>
                     <div className="text-red-500 text-[10px]">
@@ -447,6 +647,117 @@ export default function PoliceDashboard() {
               </div>
             )}
           </div>
+
+          <div className="border border-cyan-800 rounded p-3">
+            <p className="text-cyan-400 text-xs font-bold tracking-widest mb-2 flex items-center gap-1.5">
+              <FileText className="w-3 h-3" /> INCIDENT REPORTS
+              {incidentReports.length > 0 && (
+                <span className="ml-auto text-[10px] bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded-full">
+                  {incidentReports.length}
+                </span>
+              )}
+            </p>
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {incidentReports.length === 0 ? (
+                <p className="text-green-700 text-xs">No reports filed</p>
+              ) : (
+                incidentReports.map(r => {
+                  const sevColor = r.severity === "CRITICAL" ? "text-red-400" : r.severity === "HIGH" ? "text-orange-400" : r.severity === "MEDIUM" ? "text-yellow-400" : "text-green-400"
+                  const statusColor = r.status === "UNDER_REVIEW" ? "text-yellow-400" : r.status === "RESOLVED" ? "text-green-400" : "text-cyan-400"
+                  return (
+                    <div key={r.id} className="bg-cyan-950/30 border border-cyan-900 rounded px-2 py-1.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-cyan-300 font-bold">{r.id}</span>
+                        <span className={`text-[9px] font-bold ${sevColor}`}>{r.severity}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <span className="text-cyan-600 text-[10px]">{r.source} · {r.category}</span>
+                        <span className={`text-[9px] ${statusColor}`}>{r.status.replace("_", " ")}</span>
+                      </div>
+                      {r.description && (
+                        <div className="text-cyan-500/70 text-[10px] mt-0.5 truncate">{r.description}</div>
+                      )}
+                      <div className="text-cyan-800 text-[9px] mt-0.5">
+                        {new Date(r.timestamp).toLocaleTimeString()}
+                        {r.location ? ` · ${r.location.lat.toFixed(4)}, ${r.location.lng.toFixed(4)}` : ""}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          {/* ── Suspicious Activity Panel ── */}
+          <div className="border border-orange-800 rounded p-3">
+            <p className="text-orange-400 text-xs font-bold tracking-widest mb-2 flex items-center gap-1.5">
+              <Car className="w-3 h-3" /> SUSPICIOUS ACTIVITY
+              {vehicleReports.length > 0 && (
+                <span className="ml-auto text-[10px] bg-orange-500/20 text-orange-300 px-1.5 py-0.5 rounded-full">
+                  {vehicleReports.length}
+                </span>
+              )}
+            </p>
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {vehicleReports.length === 0 ? (
+                <p className="text-green-700 text-xs">No activity reports</p>
+              ) : (
+                vehicleReports.map(v => {
+                  const statusColor =
+                    v.status === "TRACKING_INITIATED" ? "text-orange-400 bg-orange-500/10 border-orange-500/25" :
+                    v.status === "ACTIVE_TRACKING" ? "text-red-400 bg-red-500/10 border-red-500/25 animate-pulse" :
+                    v.status === "VEHICLE_OUT_OF_RANGE" ? "text-gray-400 bg-gray-500/10 border-gray-500/25" :
+                    v.status === "LINKED_TO_REGISTERED_DRIVER" ? "text-purple-400 bg-purple-500/10 border-purple-500/25" :
+                    "text-green-400 bg-green-500/10 border-green-500/25"
+                  const isExpanded = selectedVehicle === v.id
+                  return (
+                    <div
+                      key={v.id}
+                      onClick={() => setSelectedVehicle(isExpanded ? null : v.id)}
+                      className="bg-orange-950/20 border border-orange-900/60 rounded px-2 py-1.5 text-xs cursor-pointer hover:bg-orange-950/40 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-orange-300 font-bold font-mono tracking-wider">{v.vehicle_number || "—"}</span>
+                        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border ${statusColor}`}>
+                          {v.status.replace(/_/g, " ")}
+                        </span>
+                      </div>
+                      {v.description && (
+                        <div className="text-orange-400/80 text-[10px] mt-0.5 line-clamp-2">{v.description}</div>
+                      )}
+                      <div className="flex items-center justify-between mt-0.5">
+                        <span className="text-orange-700 text-[10px]">{v.id}</span>
+                        <span className="text-orange-800 text-[9px]">{new Date(v.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <div className="text-orange-600 text-[10px] mt-0.5">
+                        Last: {v.lat.toFixed(4)}, {v.lng.toFixed(4)} · {v.tracking_history.length} pts
+                      </div>
+                      {v.linkedDriverId && (
+                        <div className="text-purple-400 text-[10px] mt-0.5 font-bold">
+                          ⚡ Linked: {v.linkedDriverId}
+                        </div>
+                      )}
+                      {isExpanded && (
+                        <div className="mt-2 space-y-1.5 border-t border-orange-900/40 pt-2">
+                          {v.image_url && (
+                            <img src={v.image_url} alt="Evidence" className="w-full h-20 object-cover rounded border border-orange-900/40" />
+                          )}
+                          <div className="text-[9px] text-orange-600 space-y-0.5 max-h-16 overflow-y-auto">
+                            {v.tracking_history.slice(-5).reverse().map((p, i) => (
+                              <div key={i} className="flex justify-between">
+                                <span>{p.lat.toFixed(5)}, {p.lng.toFixed(5)}</span>
+                                <span>{new Date(p.timestamp).toLocaleTimeString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="flex-1 relative">
@@ -466,8 +777,16 @@ export default function PoliceDashboard() {
               <span className="text-red-400">Emergency</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-lg leading-3">🚕</span>
+              <span className="text-lg leading-3">�</span>
+              <span className="text-red-300">SOS Event</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-lg leading-3">�🚕</span>
               <span>Cab (Green/Yellow/Red = Risk)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-lg leading-3">🚗</span>
+              <span className="text-orange-400">Suspicious Activity</span>
             </div>
           </div>
         </div>
@@ -483,6 +802,11 @@ export default function PoliceDashboard() {
         .cab-risk { font-size: 9px; color: var(--cab-color, #00ff00); margin-top: 1px; }
         .cab-marker-flash { animation: cab-flash 0.8s ease-in-out infinite; }
         @keyframes cab-flash { 0%, 100% { opacity: 1; filter: brightness(1); } 50% { opacity: 0.7; filter: brightness(1.5); } }
+        .veh-marker-wrap { text-align: center; color: var(--veh-color, #f97316); font-family: monospace; font-weight: bold; }
+        .veh-icon { font-size: 18px; margin-bottom: 1px; }
+        .veh-label { background: rgba(0,0,0,0.85); border: 1px solid var(--veh-color, #f97316); border-radius: 3px; padding: 1px 4px; font-size: 8px; white-space: nowrap; letter-spacing: 1px; }
+        .veh-marker-flash { animation: veh-flash 0.6s ease-in-out infinite; }
+        @keyframes veh-flash { 0%, 100% { opacity: 1; filter: drop-shadow(0 0 4px var(--veh-color)); } 50% { opacity: 0.6; filter: drop-shadow(0 0 12px var(--veh-color)) brightness(1.3); } }
       `}</style>
     </div>
   )

@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
-import { Link } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   Search, Crosshair, Loader2, AlertTriangle,
-  Play, Square, Radio, Cpu, Zap, MapPin,
+  Play, Pause, Square, Radio, Cpu, Zap, MapPin,
   Wifi, WifiOff, Network,
   Sliders, AlertCircle, ShieldAlert, CheckCircle2,
   Clock, Shield, Car, Star, UserCheck,
@@ -14,6 +13,11 @@ import * as turf from "@turf/turf"
 import type { Feature, Polygon, GeoJsonObject } from "geojson"
 import { getSocket, releaseSocket } from "../lib/socket"
 import { generateKeyPair, signPayload, exportPublicKey } from "../lib/crypto"
+import { useFleetSimulation } from "../lib/useFleetSimulation"
+import { useRideMonitor } from "../lib/useRideMonitor"
+import FleetPanel from "../components/FleetPanel"
+import SafetyAlertModal from "../components/SafetyAlertModal"
+import TacticalNav from "../components/TacticalNav"
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -71,24 +75,24 @@ const CORRIDOR_RADIUS_KM = 0.3
 const DEVIATION_JUMP = 1.5
 
 // ── Risk scoring constants ──────────────────────────────────────────────────
-const RISK_DECAY         = 4    // score decrease per tick while inside corridor
+const RISK_DECAY = 4    // score decrease per tick while inside corridor
 const RISK_BASE_INCREASE = 5    // base score increase per tick while outside
-const RISK_TIME_FACTOR   = 0.8  // extra score per consecutive tick outside
-const RISK_DIST_FACTOR   = 12   // extra score per km from route line
-const RISK_CAP_PER_TICK  = 30   // max score increase in a single tick
+const RISK_TIME_FACTOR = 0.8  // extra score per consecutive tick outside
+const RISK_DIST_FACTOR = 12   // extra score per km from route line
+const RISK_CAP_PER_TICK = 30   // max score increase in a single tick
 
 // ── Booking catalog ─────────────────────────────────────────────────────────
 
 const VEHICLE_CATALOG = [
-  { id: "mini",    name: "Mini",    icon: null, img: "/mini.png",    baseFare: 40,  perKm: 10, model: "Maruti Alto / WagonR" },
-  { id: "sedan",   name: "Sedan",   icon: null, img: "/sedan.png",   baseFare: 60,  perKm: 14, model: "Honda City / Dzire"   },
-  { id: "suv",     name: "SUV",     icon: null, img: "/suv.png",     baseFare: 80,  perKm: 18, model: "Innova Crysta"        },
-  { id: "premium", name: "Premium", icon: null, img: "/premium.png", baseFare: 120, perKm: 25, model: "Tesla Model 3"        },
+  { id: "mini", name: "Mini", icon: null, img: "/mini.png", baseFare: 40, perKm: 10, model: "Maruti Alto / WagonR" },
+  { id: "sedan", name: "Sedan", icon: null, img: "/sedan.png", baseFare: 60, perKm: 14, model: "Honda City / Dzire" },
+  { id: "suv", name: "SUV", icon: null, img: "/suv.png", baseFare: 80, perKm: 18, model: "Innova Crysta" },
+  { id: "premium", name: "Premium", icon: null, img: "/premium.png", baseFare: 120, perKm: 25, model: "Tesla Model 3" },
 ]
 const DRIVER_POOL = [
-  { name: "Ravi Kumar",   initials: "RK" },
+  { name: "Ravi Kumar", initials: "RK" },
   { name: "Suresh Patel", initials: "SP" },
-  { name: "Amit Singh",   initials: "AS" },
+  { name: "Amit Singh", initials: "AS" },
   { name: "Mohammed Ali", initials: "MA" },
   { name: "Karthik Nair", initials: "KN" },
 ]
@@ -104,14 +108,164 @@ function calcFare(baseFare: number, perKm: number, distanceKm: number): number {
  * Clamped to 75–95, ±2 random variance for realism.
  */
 function calcSafetyScore(distanceKm: number): number {
-  const hour     = new Date().getHours()
-  const isNight  = hour >= 21 || hour < 6
+  const hour = new Date().getHours()
+  const isNight = hour >= 21 || hour < 6
   const longRoute = distanceKm > 15
   let score = 92
-  if (isNight)   score -= 7
+  if (isNight) score -= 7
   if (longRoute) score -= 3
   score += Math.round((Math.random() - 0.5) * 4)
   return Math.max(75, Math.min(95, score))
+}
+
+// ── Pre-ride safety analysis (zone definitions) ────────────────────────────
+// GeoJSON polygons [lng, lat]. Sample zones for demo — replace with real data.
+const HIGH_TRAFFIC_ZONE = turf.polygon([[[77.1, 28.5], [77.3, 28.5], [77.3, 28.7], [77.1, 28.7], [77.1, 28.5]]])
+const HIGH_RISK_ZONE = turf.polygon([[[77.0, 28.4], [77.25, 28.4], [77.25, 28.6], [77.0, 28.6], [77.0, 28.4]]])
+const LOW_NETWORK_ZONE = turf.polygon([[[77.15, 28.55], [77.35, 28.55], [77.35, 28.65], [77.15, 28.65], [77.15, 28.55]]])
+
+export interface PreRideSafetyResult {
+  safetyScore: number
+  safetyLevel: "LOW" | "MODERATE" | "HIGH"
+  triggeredWarnings: string[]
+}
+
+function calculateSafetyScore(routeCoordinates: Coord[], distanceKm: number): PreRideSafetyResult {
+  let score = 100
+  const triggeredWarnings: string[] = []
+
+  if (routeCoordinates.length < 2) {
+    const hour = new Date().getHours()
+    const isNight = hour >= 20 || hour < 5
+    if (isNight) { score -= 15; triggeredWarnings.push("Night hours (8PM–5AM)") }
+    if (distanceKm > 15) { score -= 5; triggeredWarnings.push("Long route (>15 km)") }
+    score = Math.max(0, score)
+    const safetyLevel: PreRideSafetyResult["safetyLevel"] = score >= 80 ? "HIGH" : score >= 50 ? "MODERATE" : "LOW"
+    return { safetyScore: score, safetyLevel, triggeredWarnings }
+  }
+
+  const routeLine = turf.lineString(routeCoordinates.map(c => [c.lng, c.lat]))
+
+  if (turf.booleanIntersects(routeLine, HIGH_TRAFFIC_ZONE)) {
+    score -= 10
+    triggeredWarnings.push("Route intersects HIGH traffic zone")
+  }
+  if (turf.booleanIntersects(routeLine, HIGH_RISK_ZONE)) {
+    score -= 25
+    triggeredWarnings.push("Route intersects HIGH risk zone")
+  }
+
+  const hour = new Date().getHours()
+  const isNight = hour >= 20 || hour < 5
+  if (isNight) {
+    score -= 15
+    triggeredWarnings.push("Night hours (8PM–5AM)")
+  }
+
+  if (turf.booleanIntersects(routeLine, LOW_NETWORK_ZONE)) {
+    score -= 10
+    triggeredWarnings.push("Route intersects LOW network zone")
+  }
+  if (distanceKm > 15) {
+    score -= 5
+    triggeredWarnings.push("Long route (>15 km)")
+  }
+
+  score = Math.max(0, score)
+  const safetyLevel: PreRideSafetyResult["safetyLevel"] = score >= 80 ? "HIGH" : score >= 50 ? "MODERATE" : "LOW"
+  return { safetyScore: score, safetyLevel, triggeredWarnings }
+}
+
+// ── SafetyAnalysisCard ─────────────────────────────────────────────────────
+function SafetyAnalysisCard({ analysis }: { analysis: PreRideSafetyResult }) {
+  const { safetyScore, safetyLevel, triggeredWarnings } = analysis
+  const color =
+    safetyLevel === "HIGH" ? { hex: "#22c55e", name: "green", glow: "rgba(34,197,94,0.35)" } :
+      safetyLevel === "MODERATE" ? { hex: "#eab308", name: "yellow", glow: "rgba(234,179,8,0.35)" } :
+        { hex: "#ef4444", name: "red", glow: "rgba(239,68,68,0.35)" }
+
+  // Animated counting from 0 → safetyScore
+  const [displayScore, setDisplayScore] = useState(0)
+  useEffect(() => {
+    let start = 0
+    const target = safetyScore
+    const duration = 1000 // ms
+    const startTime = performance.now()
+    let raf: number
+    const step = (now: number) => {
+      const elapsed = now - startTime
+      const progress = Math.min(elapsed / duration, 1)
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3)
+      start = Math.round(eased * target)
+      setDisplayScore(start)
+      if (progress < 1) raf = requestAnimationFrame(step)
+    }
+    raf = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(raf)
+  }, [safetyScore])
+
+  // Pulsing glow for LOW risk level
+  const glowAnimate = safetyLevel === "LOW"
+    ? { boxShadow: [`0 0 20px ${color.glow}`, `0 0 36px ${color.glow}`, `0 0 20px ${color.glow}`] }
+    : { boxShadow: `0 0 20px ${color.glow}` }
+  const glowTransition = safetyLevel === "LOW"
+    ? { repeat: Infinity, duration: 2, ease: "easeInOut" as const }
+    : { duration: 0.4 }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0, ...glowAnimate }}
+      transition={{ duration: 0.4, boxShadow: glowTransition }}
+      className="mb-4 p-4 rounded-2xl border overflow-hidden"
+      style={{
+        background: "rgba(18,18,22,0.85)",
+        borderColor: `${color.hex}40`,
+      }}>
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-white font-bold text-sm">Ride Safety Analysis</h4>
+        <span
+          className="text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full"
+          style={{ background: `${color.hex}22`, color: color.hex, border: `1px solid ${color.hex}55` }}>
+          {safetyLevel}
+        </span>
+      </div>
+      <div className="flex items-end gap-2 mb-3">
+        <motion.span
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.15, duration: 0.35 }}
+          className="text-2xl font-black tabular-nums"
+          style={{ color: color.hex }}>
+          {displayScore}
+        </motion.span>
+        <span className="text-[#A1A1AA] text-xs mb-0.5">/100</span>
+      </div>
+      <div className="h-2 rounded-full bg-white/10 overflow-hidden mb-3">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${safetyScore}%` }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          className="h-full rounded-full"
+          style={{
+            background: `linear-gradient(90deg, ${color.hex}88, ${color.hex})`,
+            boxShadow: `0 0 8px ${color.hex}80`,
+          }}
+        />
+      </div>
+      {triggeredWarnings.length > 0 && (
+        <ul className="space-y-1">
+          {triggeredWarnings.map((w, i) => (
+            <li key={i} className="flex items-center gap-2 text-[11px] text-[#A1A1AA]">
+              <AlertCircle className="w-3 h-3 flex-shrink-0" style={{ color: color.hex }} />
+              {w}
+            </li>
+          ))}
+        </ul>
+      )}
+    </motion.div>
+  )
 }
 
 /**
@@ -141,11 +295,11 @@ function makeVehicleOptions(distanceKm = 0, durationMin = 0): VehicleOption[] {
 function makeDriver(v: VehicleOption): DriverDetails {
   const d = DRIVER_POOL[Math.floor(Math.random() * DRIVER_POOL.length)]
   return {
-    name:          d.name,
-    initials:      d.initials,
-    rating:        Math.round((4.1 + Math.random() * 0.8) * 10) / 10,
+    name: d.name,
+    initials: d.initials,
+    rating: Math.round((4.1 + Math.random() * 0.8) * 10) / 10,
     vehicleNumber: PLATES[Math.floor(Math.random() * PLATES.length)],
-    model:         v.model,
+    model: v.model,
   }
 }
 
@@ -178,27 +332,27 @@ function generatePoliceNodesFromRoute(routeCoords: Coord[]): PoliceNode[] {
 
   return Array.from({ length: NUM_NODES }, (_, i) => {
     const segStart = i * segSize
-    const segEnd   = i === NUM_NODES - 1 ? total - 1 : (i + 1) * segSize - 1
-    const midIdx   = Math.floor((segStart + segEnd) / 2)
-    const coord    = routeCoords[midIdx]
+    const segEnd = i === NUM_NODES - 1 ? total - 1 : (i + 1) * segSize - 1
+    const midIdx = Math.floor((segStart + segEnd) / 2)
+    const coord = routeCoords[midIdx]
 
     // Local route direction at this point (use ±3 neighbours for stability)
     const pIdx = Math.max(0, midIdx - 3)
     const nIdx = Math.min(total - 1, midIdx + 3)
     const dlat = routeCoords[nIdx].lat - routeCoords[pIdx].lat
     const dlng = routeCoords[nIdx].lng - routeCoords[pIdx].lng
-    const mag  = Math.sqrt(dlat * dlat + dlng * dlng) || 1e-9
+    const mag = Math.sqrt(dlat * dlat + dlng * dlng) || 1e-9
 
     // Perpendicular unit vector (rotate 90°), alternate side per node
     const side = i % 2 === 0 ? 1 : -1
     const OFFSET = 0.004 // ~400 m in degrees
 
     return {
-      id:           String.fromCharCode(65 + i), // A–E
-      lat:          coord.lat + (-dlng / mag) * OFFSET * side,
-      lng:          coord.lng + ( dlat / mag) * OFFSET * side,
+      id: String.fromCharCode(65 + i), // A–E
+      lat: coord.lat + (-dlng / mag) * OFFSET * side,
+      lng: coord.lng + (dlat / mag) * OFFSET * side,
       segmentStart: segStart,
-      segmentEnd:   segEnd,
+      segmentEnd: segEnd,
     }
   })
 }
@@ -214,38 +368,60 @@ function isInsideCorridor(polygon: Feature<Polygon>, lat: number, lng: number): 
 }
 
 interface OsrmResult {
-  coords:      Coord[]
-  distanceKm:  number   // total driving distance
+  coords: Coord[]
+  distanceKm: number   // total driving distance
   durationMin: number   // estimated driving time (minutes)
 }
 
-/** Fetch a real driving route from the free OSRM demo server. */
-async function fetchOsrmRoute(start: Coord, dest: Coord): Promise<OsrmResult> {
+/** Fetch a real driving route from OSRM. Accepts an AbortSignal for cancellation. */
+async function fetchOsrmRoute(start: Coord, dest: Coord, signal?: AbortSignal): Promise<OsrmResult> {
   const empty: OsrmResult = { coords: [], distanceKm: 0, durationMin: 0 }
-  try {
-    const url =
-      `https://router.project-osrm.org/route/v1/driving/` +
-      `${start.lng},${start.lat};${dest.lng},${dest.lat}` +
-      `?overview=full&geometries=geojson`
-    const res  = await fetch(url, { signal: AbortSignal.timeout(8000) })
-    if (!res.ok) return empty
-    const data = await res.json()
-    if (data.code !== "Ok" || !data.routes?.[0]) return empty
-    const route = data.routes[0]
-    return {
-      coords:      (route.geometry.coordinates as [number, number][]).map(([lng, lat]) => ({ lat, lng })),
-      distanceKm:  route.distance / 1000,
-      durationMin: route.duration / 60,
+  const coordStr = `${start.lng},${start.lat};${dest.lng},${dest.lat}`
+
+  // Try primary, then fallback mirror
+  const urls = [
+    `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`,
+    `https://routing.openstreetmap.de/routed-car/route/v1/driving/${coordStr}?overview=full&geometries=geojson`,
+  ]
+
+  for (const url of urls) {
+    try {
+      console.log("[OSRM] Fetching:", url)
+      const res = await fetch(url, { signal })
+      if (!res.ok) {
+        console.warn(`[OSRM] HTTP ${res.status} from ${new URL(url).hostname}`)
+        continue
+      }
+      const data = await res.json()
+      if (data.code !== "Ok" || !data.routes?.[0]) {
+        console.warn("[OSRM] Invalid response code:", data.code)
+        continue
+      }
+      const route = data.routes[0]
+      const result: OsrmResult = {
+        coords: (route.geometry.coordinates as [number, number][]).map(([lng, lat]) => ({ lat, lng })),
+        distanceKm: route.distance / 1000,
+        durationMin: route.duration / 60,
+      }
+      console.log(`[OSRM] ✓ Route fetched: ${result.coords.length} pts, ${result.distanceKm.toFixed(1)} km, ~${Math.round(result.durationMin)} min`)
+      return result
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        console.log("[OSRM] Fetch aborted (destination changed)")
+        return empty
+      }
+      console.warn(`[OSRM] Fetch failed for ${new URL(url).hostname}:`, err)
+      // try next URL
     }
-  } catch {
-    return empty
   }
+
+  console.warn("[OSRM] All endpoints failed — using straight-line fallback")
+  return empty
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function CabPage() {
-  const [navScrolled, setNavScrolled] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [searching, setSearching] = useState(false)
   const [suggestions, setSuggestions] = useState<NominatimResult[]>([])
@@ -256,26 +432,29 @@ export default function CabPage() {
   const [elapsed, setElapsed] = useState(0)
   const [simMode, setSimMode] = useState(false)
   const [simActive, setSimActive] = useState(false)
+  const [isPaused, setIsPaused] = useState(false)
+  const isPausedRef = useRef(false)
   const [destination, setDestination] = useState<Coord | null>(null)
   const [awaitingDest, setAwaitingDest] = useState(false)
   const [deviationAlert, setDeviationAlert] = useState(false)
-  const [riskScore, setRiskScore]           = useState(0)
-  const [demoOpen, setDemoOpen]             = useState(false)
-  const [demoOffline, setDemoOffline]       = useState(false)
-  const [routeCoords, setRouteCoords]       = useState<Coord[]>([])
-  const [fetchingRoute, setFetchingRoute]   = useState(false)
-  const [routeDistanceKm, setRouteDistanceKm]   = useState(0)
+  const [riskScore, setRiskScore] = useState(0)
+  const [demoOpen, setDemoOpen] = useState(false)
+  const [demoOffline, setDemoOffline] = useState(false)
+  const [routeCoords, setRouteCoords] = useState<Coord[]>([])
+  const [fetchingRoute, setFetchingRoute] = useState(false)
+  const [routeDistanceKm, setRouteDistanceKm] = useState(0)
   const [routeDurationMin, setRouteDurationMin] = useState(0)
 
   // ── Booking state ────────────────────────────────────────────────────────
-  const [bookingStep, setBookingStep]         = useState<BookingStep>(() => {
+  const [bookingStep, setBookingStep] = useState<BookingStep>(() => {
     const s = loadTrip()
     return (s?.status === "ACTIVE" || s?.status === "ALERT") ? "riding" : "select"
   })
-  const [vehicleOptions, setVehicleOptions]   = useState<VehicleOption[]>(() => makeVehicleOptions())
+  const [vehicleOptions, setVehicleOptions] = useState<VehicleOption[]>(() => makeVehicleOptions())
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleOption | null>(null)
-  const [driverDetails, setDriverDetails]     = useState<DriverDetails | null>(null)
-  const [etaCountdown, setEtaCountdown]       = useState(0)
+  const [safetyAnalysis, setSafetyAnalysis] = useState<PreRideSafetyResult | null>(null)
+  const [driverDetails, setDriverDetails] = useState<DriverDetails | null>(null)
+  const [etaCountdown, setEtaCountdown] = useState(0)
 
   // ── Police jurisdiction state ────────────────────────────────────────────
   const [activePoliceNodeId, setActivePoliceNodeId] = useState<string | null>(null)
@@ -306,28 +485,31 @@ export default function CabPage() {
   const destinationRef = useRef<Coord | null>(destination)
   const corridorRef = useRef<Feature<Polygon> | null>(null)
   const awaitingDestRef = useRef(false)
-  const alertEmittedRef  = useRef(false)
-  const keyPairRef       = useRef<CryptoKeyPair | null>(null)
-  const riskScoreRef     = useRef(0)
-  const timeOutsideRef   = useRef(0)
-  const demoRampRef      = useRef<ReturnType<typeof setInterval> | null>(null)
-  const demoOfflineRef   = useRef(false)
-  const routeCoordsRef   = useRef<Coord[]>([])
-  const simRouteIdxRef   = useRef(0)
+  const alertEmittedRef = useRef(false)
+  const keyPairRef = useRef<CryptoKeyPair | null>(null)
+  const riskScoreRef = useRef(0)
+  const timeOutsideRef = useRef(0)
+  const demoRampRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const demoOfflineRef = useRef(false)
+  const routeCoordsRef = useRef<Coord[]>([])
+  const simRouteIdxRef = useRef(0)
 
   // ── Police jurisdiction refs ──────────────────────────────────────────────
-  const policeNodesRef          = useRef<PoliceNode[]>([])
-  const policeMarkersRef        = useRef<Map<string, L.CircleMarker>>(new Map())
-  const policeCirclesRef        = useRef<Map<string, L.Circle>>(new Map())
-  const policeLineRef           = useRef<L.Polyline | null>(null)
-  const activePoliceNodeIdRef   = useRef<string | null>(null)
-  const policePulseIntervalRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const policeNodesRef = useRef<PoliceNode[]>([])
+  const policeMarkersRef = useRef<Map<string, L.CircleMarker>>(new Map())
+  const policeCirclesRef = useRef<Map<string, L.Circle>>(new Map())
+  const policeLineRef = useRef<L.Polyline | null>(null)
+  const activePoliceNodeIdRef = useRef<string | null>(null)
+  const policePulseIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Relay refs
-  const relayLayerRef    = useRef<L.LayerGroup | null>(null)
-  const queuedPacketRef  = useRef<QueuedPacket | null>(null)
-  const isOnlineRef      = useRef(navigator.onLine)
-  const relayPhaseRef    = useRef<RelayPhase>("idle")
+  const relayLayerRef = useRef<L.LayerGroup | null>(null)
+  const queuedPacketRef = useRef<QueuedPacket | null>(null)
+  const isOnlineRef = useRef(navigator.onLine)
+  const relayPhaseRef = useRef<RelayPhase>("idle")
+
+  // Fleet tracking ref (so pushCoord can read it without re-binding)
+  const fleetSelectedRef = useRef<string | null>(null)
 
   useEffect(() => { tripRef.current = trip }, [trip])
   useEffect(() => { destinationRef.current = destination }, [destination])
@@ -338,12 +520,12 @@ export default function CabPage() {
   // ── Network detection ────────────────────────────────────────────────────
 
   useEffect(() => {
-    const goOnline  = () => setIsOnline(true)
+    const goOnline = () => setIsOnline(true)
     const goOffline = () => setIsOnline(false)
-    window.addEventListener("online",  goOnline)
+    window.addEventListener("online", goOnline)
     window.addEventListener("offline", goOffline)
     return () => {
-      window.removeEventListener("online",  goOnline)
+      window.removeEventListener("online", goOnline)
       window.removeEventListener("offline", goOffline)
     }
   }, [])
@@ -444,7 +626,7 @@ export default function CabPage() {
       clearRelay()
       setTimeout(() => setTransmitStatus("idle"), 5000)
     }, 1200)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline])
 
   // ── Corridor (useMemo) ────────────────────────────────────────────────────
@@ -457,7 +639,7 @@ export default function CabPage() {
     }
     // Fallback: straight line between start and dest (while OSRM loads)
     return buildCorridor(trip?.startLocation ?? null, destination)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeCoords, trip?.startLocation?.lat, trip?.startLocation?.lng, destination?.lat, destination?.lng])
 
   useEffect(() => {
@@ -485,21 +667,15 @@ export default function CabPage() {
     } else if (trip?.startLocation && destination) {
       // Fallback straight-line while OSRM loads (dashed)
       const startPt = [trip.startLocation.lat, trip.startLocation.lng] as L.LatLngTuple
-      const destPt  = [destination.lat, destination.lng] as L.LatLngTuple
+      const destPt = [destination.lat, destination.lng] as L.LatLngTuple
       routeLineRef.current = L.polyline([startPt, destPt],
         { color: "#a78bfa", weight: 2, dashArray: "6 6", opacity: 0.6 }
       ).addTo(map)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [corridor, routeCoords])
 
-  // ── Nav scroll ────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    const fn = () => setNavScrolled(window.scrollY > 60)
-    window.addEventListener("scroll", fn)
-    return () => window.removeEventListener("scroll", fn)
-  }, [])
 
   // ── Init map ──────────────────────────────────────────────────────────────
 
@@ -541,7 +717,7 @@ export default function CabPage() {
       mapInstanceRef.current = null
       markerRef.current = null
       relayLayerRef.current = null
-      tileLayerRef.current  = null
+      tileLayerRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -616,41 +792,61 @@ export default function CabPage() {
   // ── OSRM route fetch ──────────────────────────────────────────────────────
 
   useEffect(() => {
-    const start = tripRef.current?.startLocation
-    if (!destination || !start) return
+    // Use trip start if available; otherwise use current marker (simPosRef) so booking works before ride start
+    const start = tripRef.current?.startLocation ?? simPosRef.current
+    if (!destination) return
 
-    let cancelled = false
+    const controller = new AbortController()
+    // Timeout: abort after 12s so we don't hang forever
+    const timeoutId = setTimeout(() => controller.abort(), 12000)
+
     setFetchingRoute(true)
+    console.log("[Route] Starting fetch:", { start, dest: destination })
 
-    fetchOsrmRoute(start, destination).then(({ coords, distanceKm, durationMin }) => {
-      if (cancelled) return
-      setFetchingRoute(false)
-      if (coords.length >= 2) {
-        // Find nearest route point to current sim position so sim starts from there
-        const cur = simPosRef.current
-        let nearest = 0, minDist = Infinity
-        coords.forEach((c, i) => {
-          const d = (c.lat - cur.lat) ** 2 + (c.lng - cur.lng) ** 2
-          if (d < minDist) { minDist = d; nearest = i }
-        })
-        simRouteIdxRef.current = nearest
-        routeCoordsRef.current = coords
-        setRouteCoords(coords)
-        setRouteDistanceKm(distanceKm)
-        setRouteDurationMin(durationMin)
-        // Recalculate fares now that we have real route data
-        setVehicleOptions(makeVehicleOptions(distanceKm, durationMin))
-        // Place jurisdiction nodes along the real road route
-        drawPoliceNodes(generatePoliceNodesFromRoute(coords))
-      } else {
-        // OSRM unavailable — keep straight-line fallback, show minimum fares
-        setFetchingRoute(false)
+    fetchOsrmRoute(start, destination, controller.signal)
+      .then(({ coords, distanceKm, durationMin }) => {
+        if (coords.length >= 2) {
+          console.log("[Route] ✓ Road route applied")
+          // Find nearest route point to current sim position so sim starts from there
+          const cur = simPosRef.current
+          let nearest = 0, minDist = Infinity
+          coords.forEach((c, i) => {
+            const d = (c.lat - cur.lat) ** 2 + (c.lng - cur.lng) ** 2
+            if (d < minDist) { minDist = d; nearest = i }
+          })
+          simRouteIdxRef.current = nearest
+          routeCoordsRef.current = coords
+          setRouteCoords(coords)
+          setRouteDistanceKm(distanceKm)
+          setRouteDurationMin(durationMin)
+          // Pre-ride safety analysis
+          setSafetyAnalysis(calculateSafetyScore(coords, distanceKm))
+          // Recalculate fares now that we have real route data
+          setVehicleOptions(makeVehicleOptions(distanceKm, durationMin))
+          // Place jurisdiction nodes along the real road route
+          drawPoliceNodes(generatePoliceNodesFromRoute(coords))
+        } else {
+          // OSRM unavailable — keep straight-line fallback, show minimum fares
+          console.warn("[Route] Falling back to straight line")
+          setSafetyAnalysis(calculateSafetyScore([], 0))
+          setVehicleOptions(makeVehicleOptions(0, 0))
+        }
+      })
+      .catch((err) => {
+        console.error("[Route] Unexpected error:", err)
+        setSafetyAnalysis(calculateSafetyScore([], 0))
         setVehicleOptions(makeVehicleOptions(0, 0))
-      }
-    })
+      })
+      .finally(() => {
+        // ALWAYS clear loading state, even on abort/timeout
+        setFetchingRoute(false)
+      })
 
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      controller.abort()
+      clearTimeout(timeoutId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destination?.lat, destination?.lng])
 
   useEffect(() => {
@@ -713,16 +909,16 @@ export default function CabPage() {
 
   const pushCoord = useCallback((lat: number, lng: number, polyColor = "#7C3AED") => {
     const corridor = corridorRef.current
-    const current  = tripRef.current
+    const current = tripRef.current
     let markerColor = polyColor
-    let lineColor   = polyColor
+    let lineColor = polyColor
 
     if (corridor && current && (current.status === "ACTIVE" || current.status === "ALERT")) {
       const inside = isInsideCorridor(corridor, lat, lng)
 
       if (!inside) {
         markerColor = "#ef4444"
-        lineColor   = "#ef4444"
+        lineColor = "#ef4444"
 
         // First time outside: escalate trip to ALERT
         if (current.status === "ACTIVE") {
@@ -738,20 +934,20 @@ export default function CabPage() {
 
         // Distance from route line (km) — used to scale risk increase
         const start = current.startLocation
-        const dest  = destinationRef.current
-        let distKm  = 0
+        const dest = destinationRef.current
+        let distKm = 0
         if (start && dest) {
-          const line    = turf.lineString([[start.lng, start.lat], [dest.lng, dest.lat]])
+          const line = turf.lineString([[start.lng, start.lat], [dest.lng, dest.lat]])
           const nearest = turf.nearestPointOnLine(line, turf.point([lng, lat]), { units: "kilometers" })
-          distKm        = nearest.properties.dist ?? 0
+          distKm = nearest.properties.dist ?? 0
         }
 
         const prevRisk = riskScoreRef.current
-        const rawInc   = RISK_BASE_INCREASE
-                       + timeOutsideRef.current * RISK_TIME_FACTOR
-                       + distKm * RISK_DIST_FACTOR
+        const rawInc = RISK_BASE_INCREASE
+          + timeOutsideRef.current * RISK_TIME_FACTOR
+          + distKm * RISK_DIST_FACTOR
         const increase = Math.min(rawInc, RISK_CAP_PER_TICK)
-        const newRisk  = Math.min(100, prevRisk + increase)
+        const newRisk = Math.min(100, prevRisk + increase)
         riskScoreRef.current = newRisk
         setRiskScore(newRisk)
 
@@ -759,37 +955,37 @@ export default function CabPage() {
         if (newRisk >= 70 && !alertEmittedRef.current) {
           alertEmittedRef.current = true
           const emergencyPayload = {
-            tripId:    current.tripId,
-            location:  { lat, lng },
+            tripId: current.tripId,
+            location: { lat, lng },
             timestamp: Date.now(),
-            severity:  "HIGH" as const,
+            severity: "HIGH" as const,
           }
-          ;(async () => {
-            const kp = keyPairRef.current
-            let pkt: QueuedPacket
-            if (kp) {
-              const [signature, publicKey] = await Promise.all([
-                signPayload(kp.privateKey, emergencyPayload),
-                exportPublicKey(kp.publicKey),
-              ])
-              pkt = { payload: emergencyPayload, signature, publicKey }
-            } else {
-              pkt = { payload: emergencyPayload, signature: "", publicKey: "" }
-            }
-            if (isOnlineRef.current) {
-              getSocket().emit("EMERGENCY_EVENT", pkt)
-            } else {
-              queuedPacketRef.current = pkt
-              startRelaySimulation(lat, lng)
-            }
-          })()
+            ; (async () => {
+              const kp = keyPairRef.current
+              let pkt: QueuedPacket
+              if (kp) {
+                const [signature, publicKey] = await Promise.all([
+                  signPayload(kp.privateKey, emergencyPayload),
+                  exportPublicKey(kp.publicKey),
+                ])
+                pkt = { payload: emergencyPayload, signature, publicKey }
+              } else {
+                pkt = { payload: emergencyPayload, signature: "", publicKey: "" }
+              }
+              if (isOnlineRef.current) {
+                getSocket().emit("EMERGENCY_EVENT", pkt)
+              } else {
+                queuedPacketRef.current = pkt
+                startRelaySimulation(lat, lng)
+              }
+            })()
         }
 
       } else {
         // ── Inside corridor: gradually decay risk score ─────────────────────
         timeOutsideRef.current = 0
         const prevRisk = riskScoreRef.current
-        const newRisk  = Math.max(0, prevRisk - RISK_DECAY)
+        const newRisk = Math.max(0, prevRisk - RISK_DECAY)
         riskScoreRef.current = newRisk
         setRiskScore(newRisk)
       }
@@ -797,7 +993,10 @@ export default function CabPage() {
 
     placeMarker(lat, lng, "You", markerColor)
     appendToPolyline(lat, lng, lineColor)
-    mapInstanceRef.current?.panTo([lat, lng], { animate: true, duration: 0.8, easeLinearity: 0.5 })
+    // Only auto-pan to user when no fleet vehicle is being tracked
+    if (!fleetSelectedRef.current) {
+      mapInstanceRef.current?.panTo([lat, lng], { animate: true, duration: 0.8, easeLinearity: 0.5 })
+    }
 
     if (current && (current.status === "ACTIVE" || current.status === "ALERT")) {
       const updated: Trip = { ...current, path: [...current.path, { lat, lng }] }
@@ -810,7 +1009,7 @@ export default function CabPage() {
 
     // Police jurisdiction check on every movement tick
     updatePoliceJurisdiction(lat, lng)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placeMarker, appendToPolyline, startRelaySimulation])
 
   // ── GPS helpers ───────────────────────────────────────────────────────────
@@ -869,8 +1068,8 @@ export default function CabPage() {
         code === 1
           ? "Location permission required — allow location in your browser settings."
           : code
-          ? geoErrorMsg(code)
-          : "Location unavailable."
+            ? geoErrorMsg(code)
+            : "Location unavailable."
       )
     } finally { setLocating(false) }
   }
@@ -900,6 +1099,9 @@ export default function CabPage() {
     setSimActive(true)
 
     simIntervalRef.current = setInterval(() => {
+      // Skip tick when ride is paused (fleet vehicles keep moving independently)
+      if (isPausedRef.current) return
+
       const rCoords = routeCoordsRef.current
 
       if (rCoords.length >= 2) {
@@ -917,7 +1119,7 @@ export default function CabPage() {
         simRouteIdxRef.current = idx + 1
       } else {
         // ── Fallback: vector movement toward destination ───────────────────
-        const cur  = simPosRef.current
+        const cur = simPosRef.current
         const dest = destinationRef.current
         if (dest) {
           const deltaLat = dest.lat - cur.lat
@@ -1011,9 +1213,9 @@ export default function CabPage() {
     if (!map) return
 
     // Find which segment the car is currently in
-    const routeIdx    = simRouteIdxRef.current
-    const activeNode  = nodes.find(n => routeIdx >= n.segmentStart && routeIdx <= n.segmentEnd)
-                     ?? nodes[nodes.length - 1] // clamp to last node past end
+    const routeIdx = simRouteIdxRef.current
+    const activeNode = nodes.find(n => routeIdx >= n.segmentStart && routeIdx <= n.segmentEnd)
+      ?? nodes[nodes.length - 1] // clamp to last node past end
     const newActiveId = activeNode.id
 
     // ── Node switch ──────────────────────────────────────────────────────────
@@ -1088,10 +1290,10 @@ export default function CabPage() {
     setDeviationAlert(false)
     setRiskScore(0)
     setRouteCoords([])
-    riskScoreRef.current   = 0
+    riskScoreRef.current = 0
     timeOutsideRef.current = 0
     alertEmittedRef.current = false
-    keyPairRef.current     = null
+    keyPairRef.current = null
     routeCoordsRef.current = []
     simRouteIdxRef.current = 0
 
@@ -1132,6 +1334,7 @@ export default function CabPage() {
   const handleEndRide = useCallback(() => {
     stopWatch(); stopSimulation()
     setAwaitingDest(false)
+    setIsPaused(false); isPausedRef.current = false
     const current = tripRef.current
     if (!current) return
     const completed: Trip = { ...current, status: "COMPLETED" }
@@ -1141,11 +1344,12 @@ export default function CabPage() {
     setRouteCoords([])
     setRouteDistanceKm(0)
     setRouteDurationMin(0)
+    setSafetyAnalysis(null)
     setBookingStep("select")
     setSelectedVehicle(null)
     setDriverDetails(null)
     setVehicleOptions(makeVehicleOptions(0, 0))
-    riskScoreRef.current   = 0
+    riskScoreRef.current = 0
     timeOutsideRef.current = 0
     routeCoordsRef.current = []
     simRouteIdxRef.current = 0
@@ -1179,10 +1383,10 @@ export default function CabPage() {
   /** Smoothly animate riskScore from its current value to `target` over `ms`. */
   const rampRisk = useCallback((target: number, ms = 2000) => {
     if (demoRampRef.current) clearInterval(demoRampRef.current)
-    const start  = riskScoreRef.current
+    const start = riskScoreRef.current
     const startT = Date.now()
     demoRampRef.current = setInterval(() => {
-      const p   = Math.min(1, (Date.now() - startT) / ms)
+      const p = Math.min(1, (Date.now() - startT) / ms)
       const val = Math.round(start + (target - start) * p)
       riskScoreRef.current = val
       setRiskScore(val)
@@ -1237,30 +1441,30 @@ export default function CabPage() {
       alertEmittedRef.current = true
       const pos = simPosRef.current
       const emergencyPayload = {
-        tripId:    current.tripId,
-        location:  { lat: pos.lat, lng: pos.lng },
+        tripId: current.tripId,
+        location: { lat: pos.lat, lng: pos.lng },
         timestamp: Date.now(),
-        severity:  "HIGH" as const,
+        severity: "HIGH" as const,
       }
-      ;(async () => {
-        const kp = keyPairRef.current
-        let pkt: QueuedPacket
-        if (kp) {
-          const [sig, pub] = await Promise.all([
-            signPayload(kp.privateKey, emergencyPayload),
-            exportPublicKey(kp.publicKey),
-          ])
-          pkt = { payload: emergencyPayload, signature: sig, publicKey: pub }
-        } else {
-          pkt = { payload: emergencyPayload, signature: "", publicKey: "" }
-        }
-        if (isOnlineRef.current) {
-          getSocket().emit("EMERGENCY_EVENT", pkt)
-        } else {
-          queuedPacketRef.current = pkt
-          startRelaySimulation(pos.lat, pos.lng)
-        }
-      })()
+        ; (async () => {
+          const kp = keyPairRef.current
+          let pkt: QueuedPacket
+          if (kp) {
+            const [sig, pub] = await Promise.all([
+              signPayload(kp.privateKey, emergencyPayload),
+              exportPublicKey(kp.publicKey),
+            ])
+            pkt = { payload: emergencyPayload, signature: sig, publicKey: pub }
+          } else {
+            pkt = { payload: emergencyPayload, signature: "", publicKey: "" }
+          }
+          if (isOnlineRef.current) {
+            getSocket().emit("EMERGENCY_EVENT", pkt)
+          } else {
+            queuedPacketRef.current = pkt
+            startRelaySimulation(pos.lat, pos.lng)
+          }
+        })()
     }
   }, [startRelaySimulation])
 
@@ -1310,10 +1514,70 @@ export default function CabPage() {
 
   // ── Derived state ─────────────────────────────────────────────────────────
 
-  const isActive    = trip?.status === "ACTIVE"
-  const isAlert     = trip?.status === "ALERT"
-  const isRunning   = isActive || isAlert
+  const isActive = trip?.status === "ACTIVE"
+  const isAlert = trip?.status === "ALERT"
+  const isRunning = isActive || isAlert
+
+  // ── Fleet simulation ─────────────────────────────────────────────────────
+  const fleetUserPos = isRunning ? simPosRef.current : null
+  const { vehicles: fleetVehicles, nodes: fleetNodes, selectedId: fleetSelectedId, focusVehicle: fleetFocus, triggerDeviation: fleetDeviate } =
+    useFleetSimulation(mapInstanceRef, fleetUserPos, isRunning)
+  useEffect(() => { fleetSelectedRef.current = fleetSelectedId }, [fleetSelectedId])
   const isCompleted = trip?.status === "COMPLETED"
+
+  // ── Intelligent ride monitor (unexpected stop + route deviation) ────────
+  const {
+    alertType: monitorAlertType,
+    countdown: monitorCountdown,
+    dismiss: monitorDismiss,
+    triggerSOS: monitorTriggerSOS,
+    sosTriggered: monitorSOSTriggered,
+    forceAlert: monitorForceAlert,
+  } = useRideMonitor({
+    isRiding: isRunning,
+    isPaused,
+    currentPosRef: simPosRef,
+    destination,
+    routeCoords,
+  })
+
+  /** Fire SOS from the safety-alert modal — mirrors existing emergency pattern. */
+  const handleMonitorSOS = useCallback(async () => {
+    monitorTriggerSOS()
+    const pos = simPosRef.current
+    const current = tripRef.current
+    const emergencyPayload = {
+      tripId: current?.tripId ?? "UNKNOWN",
+      location: { lat: pos.lat, lng: pos.lng },
+      timestamp: Date.now(),
+      severity: "HIGH" as const,
+    }
+    const kp = keyPairRef.current
+    let pkt: QueuedPacket
+    if (kp) {
+      const [signature, publicKey] = await Promise.all([
+        signPayload(kp.privateKey, emergencyPayload),
+        exportPublicKey(kp.publicKey),
+      ])
+      pkt = { payload: emergencyPayload, signature, publicKey }
+    } else {
+      pkt = { payload: emergencyPayload, signature: "", publicKey: "" }
+    }
+    if (isOnlineRef.current) {
+      getSocket().emit("EMERGENCY_EVENT", pkt)
+    } else {
+      queuedPacketRef.current = pkt
+      startRelaySimulation(pos.lat, pos.lng)
+    }
+  }, [monitorTriggerSOS, startRelaySimulation])
+
+  /** Auto-fire SOS when the monitor countdown expires. */
+  useEffect(() => {
+    if (monitorSOSTriggered) {
+      handleMonitorSOS()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monitorSOSTriggered])
 
   const riskStatus: "SAFE" | "WARNING" | "CRITICAL" =
     riskScore < 30 ? "SAFE" : riskScore < 70 ? "WARNING" : "CRITICAL"
@@ -1329,20 +1593,23 @@ export default function CabPage() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="h-screen flex flex-col relative overflow-hidden bg-[#0B0B0F]">
+    <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: "linear-gradient(135deg, #030305 0%, #0a0a12 50%, #000000 100%)" }}>
 
-      {/* Navbar */}
-      <header className={`flex-shrink-0 z-[1100] px-6 py-4 flex items-center justify-between transition-all duration-300 ${navScrolled ? "bg-[#0B0B0F]/70 backdrop-blur-xl border-b border-white/5" : "bg-[#0B0B0F]/80 backdrop-blur-md"}`}>
-        <Link to="/" className="text-white font-bold text-lg tracking-tight">Saarthi</Link>
-        <nav className="flex items-center gap-8">
-          <Link to="/wallet" className="text-[#A1A1AA] hover:text-white text-sm font-medium transition-colors">Wallet</Link>
-          <span className="text-white text-sm font-medium">Cab</span>
-          <Link to="/police" className="text-[#A1A1AA] hover:text-white text-sm font-medium transition-colors">Police</Link>
-          <Link to="/" className="text-[#A1A1AA] hover:text-white text-sm font-medium transition-colors">Home</Link>
-        </nav>
-      </header>
+      {/* ── Safety Alert Modal (ride monitor) ── */}
+      <SafetyAlertModal
+        alertType={monitorAlertType}
+        countdown={monitorCountdown}
+        onDismiss={monitorDismiss}
+        onTriggerSOS={handleMonitorSOS}
+        sosTriggered={monitorSOSTriggered}
+      />
 
-      <div className="flex-1 relative">
+      {/* Premium Tactical Navbar */}
+      <div className="flex-shrink-0 z-[1100]">
+        <TacticalNav />
+      </div>
+
+      <div className="flex-1 relative" style={{ marginTop: 52 }}>
         <div ref={mapRef} className="absolute inset-0 z-0" />
 
         {/* Offline grid overlay — shown instead of tiles */}
@@ -1415,9 +1682,9 @@ export default function CabPage() {
                 <motion.div animate={{ rotate: relayPhase === "scanning" ? 360 : 0 }} transition={{ repeat: Infinity, duration: 1.4, ease: "linear" }}>
                   <Network className="w-4 h-4" />
                 </motion.div>
-                {relayPhase === "scanning"   && "⚡ Network Unavailable — Switching to Relay Mode"}
+                {relayPhase === "scanning" && "⚡ Network Unavailable — Switching to Relay Mode"}
                 {relayPhase === "connecting" && `⚡ Connecting via Saarthi Nodes… (${relayHops} hop${relayHops !== 1 ? "s" : ""})`}
-                {relayPhase === "queued"     && `📡 Emergency queued · ${relayHops} relay hop${relayHops !== 1 ? "s" : ""} — will transmit on reconnect`}
+                {relayPhase === "queued" && `📡 Emergency queued · ${relayHops} relay hop${relayHops !== 1 ? "s" : ""} — will transmit on reconnect`}
               </motion.div>
             </motion.div>
           )}
@@ -1521,7 +1788,15 @@ export default function CabPage() {
                 <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1.4 }}
                   className="w-2 h-2 rounded-full bg-[#7C3AED] flex-shrink-0" />
                 <Radio className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
-                Trip Active – Monitoring · {formatElapsed(elapsed)}
+                {isPaused ? (
+                  <>
+                    <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1 }}
+                      className="text-amber-400">⏸ PAUSED</motion.span>
+                    <span className="text-[#A1A1AA]">· {formatElapsed(elapsed)}</span>
+                  </>
+                ) : (
+                  <>Trip Active – Monitoring · {formatElapsed(elapsed)}</>
+                )}
               </motion.div>
             ) : isCompleted ? (
               <motion.div key="done" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
@@ -1542,11 +1817,10 @@ export default function CabPage() {
           <motion.div
             key={isOnline ? "online" : "offline"}
             initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border shadow-xl whitespace-nowrap ${
-              isOnline
-                ? "bg-[#18181B]/90 border-emerald-500/40 text-emerald-400"
-                : "bg-[#18181B]/90 border-red-500/40 text-red-400"
-            }`}>
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border shadow-xl whitespace-nowrap ${isOnline
+              ? "bg-[#18181B]/90 border-emerald-500/40 text-emerald-400"
+              : "bg-[#18181B]/90 border-red-500/40 text-red-400"
+              }`}>
             {isOnline
               ? <Wifi className="w-3 h-3" />
               : <motion.div animate={{ opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1 }}><WifiOff className="w-3 h-3" /></motion.div>
@@ -1577,11 +1851,10 @@ export default function CabPage() {
               <motion.div
                 key={routeCoords.length > 0 ? "road" : "straight"}
                 initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full bg-[#18181B]/90 backdrop-blur-md text-xs font-semibold shadow-xl whitespace-nowrap ${
-                  routeCoords.length > 0
-                    ? "border border-emerald-500/40 text-emerald-400"
-                    : "border border-yellow-500/40 text-yellow-400"
-                }`}>
+                className={`flex items-center gap-2 px-4 py-2 rounded-full bg-[#18181B]/90 backdrop-blur-md text-xs font-semibold shadow-xl whitespace-nowrap ${routeCoords.length > 0
+                  ? "border border-emerald-500/40 text-emerald-400"
+                  : "border border-yellow-500/40 text-yellow-400"
+                  }`}>
                 <div className={`w-2 h-2 rounded-full flex-shrink-0 ${routeCoords.length > 0 ? "bg-emerald-400" : "bg-yellow-400"}`} />
                 <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
                 {routeCoords.length > 0
@@ -1611,11 +1884,10 @@ export default function CabPage() {
                 <motion.div
                   key={activePoliceNodeId ?? "none"}
                   initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-full bg-[#18181B]/90 backdrop-blur-md text-xs font-semibold shadow-xl whitespace-nowrap ${
-                    activePoliceNodeId
-                      ? "border border-red-500/60 text-red-400"
-                      : "border border-white/10 text-[#A1A1AA]"
-                  }`}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full bg-[#18181B]/90 backdrop-blur-md text-xs font-semibold shadow-xl whitespace-nowrap ${activePoliceNodeId
+                    ? "border border-red-500/60 text-red-400"
+                    : "border border-white/10 text-[#A1A1AA]"
+                    }`}
                   style={activePoliceNodeId ? { boxShadow: "0 0 12px rgba(220,38,38,0.25)" } : {}}>
                   {activePoliceNodeId ? (
                     <>
@@ -1656,6 +1928,7 @@ export default function CabPage() {
                   if (destination) {
                     setDestination(null)
                     setRouteCoords([])
+                    setSafetyAnalysis(null)
                     routeCoordsRef.current = []
                     simRouteIdxRef.current = 0
                     if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null }
@@ -1686,11 +1959,10 @@ export default function CabPage() {
           <div className="mt-1 pt-2 border-t border-white/10">
             <button
               onClick={() => setDemoOpen(d => !d)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-xl transition-all w-full whitespace-nowrap ${
-                demoOpen
-                  ? "bg-[#7C3AED]/25 border border-[#7C3AED]/60 text-purple-300"
-                  : "bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/10"
-              }`}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-xl transition-all w-full whitespace-nowrap ${demoOpen
+                ? "bg-[#7C3AED]/25 border border-[#7C3AED]/60 text-purple-300"
+                : "bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/10"
+                }`}
               style={demoOpen ? { boxShadow: "0 0 18px rgba(124,58,237,0.3)" } : {}}>
               <Sliders className="w-4 h-4 flex-shrink-0" />
               {demoOpen ? "Close Demo" : "Demo Controls"}
@@ -1772,18 +2044,46 @@ export default function CabPage() {
                       </div>
                     </button>
 
+                    {/* ── Ride Monitor Demo Alerts ── */}
+                    <div className="border-t border-white/8 pt-2 mt-1">
+                      <span className="text-[9px] font-bold tracking-[0.12em] text-cyan-400/70 uppercase px-1">Ride Monitor Alerts</span>
+                    </div>
+
+                    {/* Simulate Unexpected Stop */}
+                    <button
+                      onClick={() => monitorForceAlert("unexpected-stop")}
+                      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
+                        bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-500/50">
+                      <Car className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <div>
+                        <div className="text-[11px] font-bold">Simulate Unexpected Stop</div>
+                        <div className="text-[9px] text-cyan-600 font-normal">Shows 15s countdown modal</div>
+                      </div>
+                    </button>
+
+                    {/* Simulate Route Deviation */}
+                    <button
+                      onClick={() => monitorForceAlert("route-deviation")}
+                      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
+                        bg-pink-500/10 border border-pink-500/30 text-pink-400 hover:bg-pink-500/20 hover:border-pink-500/50">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <div>
+                        <div className="text-[11px] font-bold">Simulate Route Deviation</div>
+                        <div className="text-[9px] text-pink-600 font-normal">Shows 15s countdown modal</div>
+                      </div>
+                    </button>
+
                     {/* Offline Toggle */}
                     <button
                       onClick={demoToggleOffline}
-                      className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full ${
-                        demoOffline
-                          ? "bg-blue-500/20 border border-blue-400/60 text-blue-300"
-                          : "bg-blue-500/10 border border-blue-500/30 text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/50"
-                      }`}>
+                      className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full ${demoOffline
+                        ? "bg-blue-500/20 border border-blue-400/60 text-blue-300"
+                        : "bg-blue-500/10 border border-blue-500/30 text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/50"
+                        }`}>
                       {demoOffline
                         ? <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1.2 }}>
-                            <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
-                          </motion.div>
+                          <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
+                        </motion.div>
                         : <Wifi className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
                       }
                       <div>
@@ -1865,6 +2165,16 @@ export default function CabPage() {
           )}
         </AnimatePresence>
 
+        {/* Fleet Panel (bottom-left) */}
+        {isRunning && (
+          <FleetPanel
+            vehicles={fleetVehicles}
+            selectedId={fleetSelectedId}
+            onFocus={fleetFocus}
+            onTriggerDeviation={fleetDeviate}
+          />
+        )}
+
         {/* Risk Score Meter */}
         <AnimatePresence>
           {isRunning && (
@@ -1942,12 +2252,39 @@ export default function CabPage() {
           )}
         </AnimatePresence>
 
-        {/* End Ride button (visible only while trip is running) */}
+        {/* Pause / Continue + End Ride buttons (visible only while trip is running) */}
         <AnimatePresence>
           {isRunning && (
             <motion.div
               initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000]">
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3">
+
+              {/* Pause / Continue */}
+              <button
+                onClick={() => {
+                  setIsPaused(p => {
+                    isPausedRef.current = !p
+                    return !p
+                  })
+                }}
+                className={`flex items-center gap-2 px-5 py-3.5 rounded-2xl font-semibold text-sm shadow-2xl transition-all ${
+                  isPaused
+                    ? "text-white"
+                    : "text-white"
+                }`}
+                style={{
+                  background: isPaused
+                    ? "linear-gradient(135deg,#16a34a,#15803d)"
+                    : "linear-gradient(135deg,#d97706,#b45309)",
+                  boxShadow: isPaused
+                    ? "0 0 24px rgba(22,163,74,0.5)"
+                    : "0 0 24px rgba(217,119,6,0.45)",
+                }}>
+                {isPaused ? <Play className="w-4 h-4 fill-white" /> : <Pause className="w-4 h-4" />}
+                {isPaused ? "Continue" : "Pause Ride"}
+              </button>
+
+              {/* End Ride */}
               <button
                 onClick={handleEndRide}
                 className="flex items-center gap-2.5 px-8 py-3.5 rounded-2xl font-semibold text-white text-sm shadow-2xl"
@@ -1986,10 +2323,10 @@ export default function CabPage() {
                           {!destination
                             ? "Pin a destination to calculate fares"
                             : fetchingRoute
-                            ? "Calculating route & fares…"
-                            : routeDistanceKm > 0
-                            ? `${routeDistanceKm.toFixed(1)} km · ~${Math.round(routeDurationMin)} min drive`
-                            : "Destination set — select a vehicle"}
+                              ? "Calculating route & fares…"
+                              : routeDistanceKm > 0
+                                ? `${routeDistanceKm.toFixed(1)} km · ~${Math.round(routeDurationMin)} min drive`
+                                : "Destination set — select a vehicle"}
                         </p>
                       </div>
                       <Car className="w-5 h-5 text-[#7C3AED]" />
@@ -2019,7 +2356,7 @@ export default function CabPage() {
                   {/* ── Fetching route → shimmer skeleton ── */}
                   {destination && fetchingRoute && (
                     <div className="px-4 grid grid-cols-2 gap-2.5 pb-6">
-                      {[0,1,2,3].map(i => (
+                      {[0, 1, 2, 3].map(i => (
                         <div key={i} className="p-3.5 rounded-2xl border border-white/8"
                           style={{ background: "rgba(255,255,255,0.04)" }}>
                           {/* shimmer bars */}
@@ -2045,23 +2382,29 @@ export default function CabPage() {
                     </div>
                   )}
 
-                  {/* ── Fares ready → vehicle cards ── */}
+                  {/* ── Fares ready → Safety Analysis + vehicle cards ── */}
                   {destination && !fetchingRoute && (
                     <>
-                      <div className="px-4 grid grid-cols-2 gap-2.5">
+                      {safetyAnalysis && (
+                        <div className="px-4">
+                          <SafetyAnalysisCard analysis={safetyAnalysis} />
+                        </div>
+                      )}
+                      <div className={`px-4 grid grid-cols-2 gap-2.5 ${!safetyAnalysis ? "pointer-events-none opacity-50" : ""}`}>
                         {vehicleOptions.map((v, idx) => (
                           <motion.button
                             key={v.id}
                             initial={{ opacity: 0, y: 12 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: idx * 0.07, type: "spring", damping: 20 }}
-                            onClick={() => setSelectedVehicle(v)}
-                            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-                            className={`relative p-3.5 rounded-2xl text-left transition-all ${
-                              selectedVehicle?.id === v.id
-                                ? "border-2 border-[#7C3AED]"
-                                : "border border-white/10 hover:border-white/20"
-                            }`}
+                            onClick={() => safetyAnalysis && setSelectedVehicle(v)}
+                            disabled={!safetyAnalysis}
+                            whileHover={safetyAnalysis ? { scale: 1.02 } : {}}
+                            whileTap={safetyAnalysis ? { scale: 0.97 } : {}}
+                            className={`relative p-3.5 rounded-2xl text-left transition-all ${selectedVehicle?.id === v.id
+                              ? "border-2 border-[#7C3AED]"
+                              : "border border-white/10 hover:border-white/20"
+                              }`}
                             style={
                               selectedVehicle?.id === v.id
                                 ? { background: "rgba(124,58,237,0.15)", boxShadow: "0 0 26px rgba(124,58,237,0.35)" }
@@ -2079,17 +2422,17 @@ export default function CabPage() {
 
                             {v.img
                               ? <img src={v.img} alt={v.name} className="h-12 w-auto object-contain mb-1"
-                                  style={{
-                                    maskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
-                                    WebkitMaskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
-                                    filter: v.id === "suv"
-                                      ? "drop-shadow(0 2px 8px rgba(220,38,38,0.5)) brightness(1.1)"
-                                      : v.id === "premium"
+                                style={{
+                                  maskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
+                                  WebkitMaskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
+                                  filter: v.id === "suv"
+                                    ? "drop-shadow(0 2px 8px rgba(220,38,38,0.5)) brightness(1.1)"
+                                    : v.id === "premium"
                                       ? "drop-shadow(0 2px 8px rgba(124,58,237,0.5)) brightness(1.05)"
                                       : v.id === "mini"
-                                      ? "drop-shadow(0 2px 6px rgba(180,50,50,0.4)) brightness(1.1) saturate(1.2)"
-                                      : "drop-shadow(0 2px 6px rgba(37,99,235,0.4)) brightness(1.05)",
-                                  }} />
+                                        ? "drop-shadow(0 2px 6px rgba(180,50,50,0.4)) brightness(1.1) saturate(1.2)"
+                                        : "drop-shadow(0 2px 6px rgba(37,99,235,0.4)) brightness(1.05)",
+                                }} />
                               : <div className="text-2xl mb-2">{v.icon}</div>
                             }
 
@@ -2131,9 +2474,8 @@ export default function CabPage() {
                           disabled={!selectedVehicle}
                           whileHover={selectedVehicle ? { scale: 1.01 } : {}}
                           whileTap={selectedVehicle ? { scale: 0.98 } : {}}
-                          className={`w-full py-3.5 rounded-2xl font-bold text-sm transition-all ${
-                            selectedVehicle ? "text-white" : "bg-white/5 border border-white/10 text-[#52525B] cursor-not-allowed"
-                          }`}
+                          className={`w-full py-3.5 rounded-2xl font-bold text-sm transition-all ${selectedVehicle ? "text-white" : "bg-white/5 border border-white/10 text-[#52525B] cursor-not-allowed"
+                            }`}
                           style={selectedVehicle ? {
                             background: "linear-gradient(135deg,#7C3AED,#2563EB)",
                             boxShadow: "0 0 28px rgba(124,58,237,0.45)",
@@ -2161,20 +2503,20 @@ export default function CabPage() {
                     <div className="absolute inset-0 flex items-center justify-center">
                       {selectedVehicle?.img
                         ? <img
-                            src={selectedVehicle.img} alt={selectedVehicle.name}
-                            className="h-9 w-auto object-contain"
-                            style={{
-                              maskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
-                              WebkitMaskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
-                              filter: selectedVehicle.id === "suv"
-                                ? "drop-shadow(0 2px 8px rgba(220,38,38,0.5)) brightness(1.1)"
-                                : selectedVehicle.id === "premium"
+                          src={selectedVehicle.img} alt={selectedVehicle.name}
+                          className="h-9 w-auto object-contain"
+                          style={{
+                            maskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
+                            WebkitMaskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
+                            filter: selectedVehicle.id === "suv"
+                              ? "drop-shadow(0 2px 8px rgba(220,38,38,0.5)) brightness(1.1)"
+                              : selectedVehicle.id === "premium"
                                 ? "drop-shadow(0 2px 8px rgba(124,58,237,0.5)) brightness(1.05)"
                                 : selectedVehicle.id === "mini"
-                                ? "drop-shadow(0 2px 6px rgba(180,50,50,0.4)) brightness(1.1) saturate(1.2)"
-                                : "drop-shadow(0 2px 6px rgba(37,99,235,0.4)) brightness(1.05)",
-                            }}
-                          />
+                                  ? "drop-shadow(0 2px 6px rgba(180,50,50,0.4)) brightness(1.1) saturate(1.2)"
+                                  : "drop-shadow(0 2px 6px rgba(37,99,235,0.4)) brightness(1.05)",
+                          }}
+                        />
                         : <span className="text-2xl">{selectedVehicle?.icon}</span>
                       }
                     </div>
@@ -2244,20 +2586,20 @@ export default function CabPage() {
                     <div className="flex-shrink-0">
                       {selectedVehicle?.img
                         ? <img
-                            src={selectedVehicle.img} alt={selectedVehicle.name}
-                            className="h-9 w-auto object-contain"
-                            style={{
-                              maskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
-                              WebkitMaskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
-                              filter: selectedVehicle.id === "suv"
-                                ? "drop-shadow(0 2px 8px rgba(220,38,38,0.5)) brightness(1.1)"
-                                : selectedVehicle.id === "premium"
+                          src={selectedVehicle.img} alt={selectedVehicle.name}
+                          className="h-9 w-auto object-contain"
+                          style={{
+                            maskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
+                            WebkitMaskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
+                            filter: selectedVehicle.id === "suv"
+                              ? "drop-shadow(0 2px 8px rgba(220,38,38,0.5)) brightness(1.1)"
+                              : selectedVehicle.id === "premium"
                                 ? "drop-shadow(0 2px 8px rgba(124,58,237,0.5)) brightness(1.05)"
                                 : selectedVehicle.id === "mini"
-                                ? "drop-shadow(0 2px 6px rgba(180,50,50,0.4)) brightness(1.1) saturate(1.2)"
-                                : "drop-shadow(0 2px 6px rgba(37,99,235,0.4)) brightness(1.05)",
-                            }}
-                          />
+                                  ? "drop-shadow(0 2px 6px rgba(180,50,50,0.4)) brightness(1.1) saturate(1.2)"
+                                  : "drop-shadow(0 2px 6px rgba(37,99,235,0.4)) brightness(1.05)",
+                          }}
+                        />
                         : <span className="text-2xl">{selectedVehicle?.icon}</span>
                       }
                     </div>
@@ -2296,6 +2638,6 @@ export default function CabPage() {
         </AnimatePresence>
 
       </div>
-    </div>
+    </div >
   )
 }

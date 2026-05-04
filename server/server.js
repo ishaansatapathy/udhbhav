@@ -5,28 +5,49 @@
  * Port: 4000
  */
 
-const express = require("express")
-const http    = require("http")
-const { Server } = require("socket.io")
-const cors   = require("cors")
-const geo    = require("./geo")
-const crypto = require("./crypto")
-const intel  = require("./intelligence")
+const path = require("path")
+require("dotenv").config({ path: path.resolve(__dirname, "..", ".env") })
 
-const app    = express()
+// ── Validate critical env vars at startup ─────────────────────────────────────
+if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+  console.warn("\n  ⚠️  EMAIL_USER / EMAIL_PASS missing in .env — email alerts will be DISABLED\n")
+} else if (process.env.EMAIL_USER.includes("your_") || process.env.EMAIL_PASS.includes("your_")) {
+  console.warn("\n  ⚠️  EMAIL_USER / EMAIL_PASS still has PLACEHOLDER values in .env")
+  console.warn("  → Update .env with real Gmail address + 16-char App Password\n")
+}
+
+const express = require("express")
+const http = require("http")
+const { Server } = require("socket.io")
+const cors = require("cors")
+const geo = require("./geo")
+const crypto = require("./crypto")
+const intel = require("./intelligence")
+const sosRoutes = require("./routes/sos")
+const responderRoutes = require("./routes/responder")
+const { registerSosSocketEvents } = require("./socket/sosSocketEvents")
+const { registerCommunitySocketEvents, broadcastCommunityAlert } = require("./socket/communitySocketEvents")
+const responderService = require("./services/responderService")
+const contactsRoutes = require("./routes/contacts")
+const reportRoutes = require("./routes/report")
+const reportService = require("./services/reportService")
+const vehicleReportRoutes = require("./routes/vehicleReport")
+const vehicleService = require("./services/vehicleService")
+
+const app = express()
 const server = http.createServer(app)
-const io     = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } })
+const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } })
 
 app.use(cors())
 app.use(express.json())
 
 // ── In-memory state ───────────────────────────────────────────────────────────
 
-const alertLog      = []
-const cabState      = new Map()
-const movementHist  = new Map()
-const traceChain    = new Map()
-let lastAlertHash   = "0"
+const alertLog = []
+const cabState = new Map()
+const movementHist = new Map()
+const traceChain = new Map()
+let lastAlertHash = "0"
 
 // ── REST API ──────────────────────────────────────────────────────────────────
 
@@ -71,10 +92,56 @@ app.post("/api/emergency", (req, res) => {
   res.json({ ok: true, alertId: alert.id })
 })
 
+// ── SOS Routes ────────────────────────────────────────────────────────────────
+app.use("/api/sos", sosRoutes.router)
+sosRoutes.setIo(io)
+
+// ── Community Response Routes ─────────────────────────────────────────────────
+app.use("/api/respond", responderRoutes.router)
+responderRoutes.setIo(io)
+
+// ── Trusted Contacts Routes ───────────────────────────────────────────────────
+app.use("/api/contacts", contactsRoutes)
+
+// ── Unified Report Routes ─────────────────────────────────────────────────────
+app.use("/api/report", reportRoutes.router)
+reportRoutes.setIo(io)
+
+// ── Vehicle Report Routes ─────────────────────────────────────────────────────
+app.use("/api/vehicle-report", vehicleReportRoutes.router)
+vehicleReportRoutes.setIo(io)
+
+// Wire auto-escalation → Socket.io broadcast
+const emergencyService = require("./services/emergencyService")
+const { broadcastUpdateEmergency } = require("./socket/sosSocketEvents")
+emergencyService.setEscalationBroadcast((emergency) => {
+  broadcastUpdateEmergency(io, emergency)
+})
+
+// Wire community alert on every new emergency
+emergencyService.setOnCreateCallback((emergency) => {
+  const nearby = responderService.findNearbyResponders(emergency.lat, emergency.lng)
+  if (nearby.length > 0) {
+    broadcastCommunityAlert(io, emergency, nearby)
+  }
+})
+
 // ── Socket.io ─────────────────────────────────────────────────────────────────
 
 io.on("connection", (socket) => {
   console.log(`[+] Client connected   id=${socket.id}`)
+
+  // Send existing incident reports to newly connected client (Police Dashboard)
+  const existingReports = reportService.getReports()
+  if (existingReports.length > 0) {
+    socket.emit("initial_reports", existingReports)
+  }
+
+  // Send existing vehicle reports to newly connected client
+  const existingVehicleReports = vehicleService.getReports()
+  if (existingVehicleReports.length > 0) {
+    socket.emit("initial_vehicle_reports", existingVehicleReports)
+  }
 
   // Send alert history to newly connected clients (police dashboard)
   if (alertLog.length > 0) {
@@ -91,6 +158,20 @@ io.on("connection", (socket) => {
     console.log(`[!] EMERGENCY_EVENT  trip=${data?.payload?.tripId}  from=${socket.id}`)
     alertLog.push({ ...data.payload, receivedAt: enriched.receivedAt })
     io.emit("POLICE_ALERT", enriched)
+
+    // Also send email alerts to trusted contacts for cab emergencies
+    const { sendEmailToContacts } = require("./services/emailService")
+    const payload = data?.payload || {}
+    sendEmailToContacts({
+      event_id: payload.tripId || `CAB_${Date.now()}`,
+      lat: payload.location?.lat ?? payload.lat ?? 0,
+      lng: payload.location?.lng ?? payload.lng ?? 0,
+      level: payload.severity || "HIGH",
+      user_id: payload.cabId || "cab-user",
+      timestamp: Date.now(),
+    })
+      .then(r => console.log(`[CAB] Email alerts: ${r.sent} sent, ${r.failed} failed`))
+      .catch(err => console.error("[CAB] Email alert error:", err.message))
   })
 
   // ── Teammate's station channel ────────────────────────────────────────────
@@ -115,7 +196,7 @@ io.on("connection", (socket) => {
     if (hist.length > 20) hist = hist.slice(-20)
     movementHist.set(cabId, hist)
 
-    const station   = geo.getOwningStation(lat, lon)
+    const station = geo.getOwningStation(lat, lon)
     const prevState = cabState.get(cabId)
     const prevStationId = prevState?.stationId
 
@@ -123,7 +204,7 @@ io.on("connection", (socket) => {
     const riskScore = intel.computeRiskScore(cabId, movementHist, traceChain)
     const predictedNext = intel.predictNextStation(cabId, movementHist, geo.getStations())
 
-    const newState  = {
+    const newState = {
       lat, lon,
       stationId: station.id,
       stationName: station.name,
@@ -179,12 +260,16 @@ io.on("connection", (socket) => {
   })
 })
 
+// ── Register SOS socket events ────────────────────────────────────────────────
+registerSosSocketEvents(io)
+registerCommunitySocketEvents(io)
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 const PORT = 4000
 server.listen(PORT, () => {
   console.log(`\n  Sahayak Unified Server`)
-  console.log(`  Emergency + Police Station API`)
+  console.log(`  Emergency + Police Station + SOS API`)
   console.log(`  http://localhost:${PORT}`)
   console.log(`  Press Ctrl+C to stop\n`)
 })

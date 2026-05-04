@@ -1,35 +1,19 @@
 import { useRef, useEffect, useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion, useScroll, useTransform } from "framer-motion"
 import { Link } from "react-router-dom"
 import * as THREE from "three"
-import { Lock, Car, Radio, Shield, MapPin, AlertTriangle } from "lucide-react"
-import { useInView } from "framer-motion"
+import { Lock, Car, Radio, Shield, MapPin, AlertTriangle, ArrowRight, Sparkles, CheckCircle2 } from "lucide-react"
+import TacticalNav from "../components/TacticalNav"
+import { useHeroEntrance, useSectionReveal, useGlitchText, useFloatingElement } from "../lib/useAnimeAnimations"
 
-// ── Below-fold section helper ───────────────────────────────────────────────
-const fadeUp = { initial: { opacity: 0, y: 24 }, animate: { opacity: 1, y: 0 } }
-
-function Section({ children, className = "", id }: { children: React.ReactNode; className?: string; id?: string }) {
-  const ref = useRef(null)
-  const inView = useInView(ref, { once: true, margin: "-80px" })
-  return (
-    <motion.section ref={ref} id={id}
-      initial="initial" animate={inView ? "animate" : "initial"}
-      variants={{ initial: {}, animate: { transition: { staggerChildren: 0.1 } } }}
-      className={className}>
-      {children}
-    </motion.section>
-  )
-}
-
-// ── Subtle particle layer ───────────────────────────────────────────────────
-function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>) {
+// ── Subtle particle layer ───────────────────────────────────────────────
+function useParticles(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    // Wait one frame so CSS layout sizes the canvas before we read offsetWidth/Height
     const init = () => {
-      const W = canvas.offsetWidth  || window.innerWidth
+      const W = canvas.offsetWidth || window.innerWidth
       const H = canvas.offsetHeight || window.innerHeight
       if (!W || !H) return
 
@@ -41,15 +25,15 @@ function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>) {
       renderer.setSize(W, H)
       renderer.setPixelRatio(1)
 
-      const scene  = new THREE.Scene()
+      const scene = new THREE.Scene()
       const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 200)
       camera.position.set(0, 0, 8)
 
       const COUNT = 600
-      const pos   = new Float32Array(COUNT * 3)
+      const pos = new Float32Array(COUNT * 3)
       const vel: number[] = []
       for (let i = 0; i < COUNT; i++) {
-        pos[i * 3]     = (Math.random() - 0.5) * 28
+        pos[i * 3] = (Math.random() - 0.5) * 28
         pos[i * 3 + 1] = (Math.random() - 0.5) * 18
         pos[i * 3 + 2] = (Math.random() - 0.5) * 6
         vel.push((Math.random() - 0.5) * 0.0008, (Math.random() - 0.5) * 0.0008, 0)
@@ -73,22 +57,21 @@ function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>) {
         id = requestAnimationFrame(tick)
         const p = geo.attributes.position.array as Float32Array
         for (let i = 0; i < COUNT; i++) {
-          p[i * 3]     += vel[i * 3]
+          p[i * 3] += vel[i * 3]
           p[i * 3 + 1] += vel[i * 3 + 1]
-          if (Math.abs(p[i * 3])     > 14) vel[i * 3]     *= -1
-          if (Math.abs(p[i * 3 + 1]) > 9)  vel[i * 3 + 1] *= -1
+          if (Math.abs(p[i * 3]) > 14) vel[i * 3] *= -1
+          if (Math.abs(p[i * 3 + 1]) > 9) vel[i * 3 + 1] *= -1
         }
         geo.attributes.position.needsUpdate = true
         renderer.render(scene, camera)
       }
       tick()
 
-      // Store cleanup on the canvas element so it runs on unmount
-      ;(canvas as HTMLCanvasElement & { _cleanup?: () => void })._cleanup = () => {
-        cancelAnimationFrame(id)
-        window.removeEventListener("resize", onResize)
-        renderer.dispose()
-      }
+        ; (canvas as HTMLCanvasElement & { _cleanup?: () => void })._cleanup = () => {
+          cancelAnimationFrame(id)
+          window.removeEventListener("resize", onResize)
+          renderer.dispose()
+        }
     }
 
     const raf = requestAnimationFrame(init)
@@ -100,12 +83,21 @@ function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>) {
   }, [canvasRef])
 }
 
-// ── Main component ──────────────────────────────────────────────────────────
+// ── Main component ──────────────────────────────────────────────────────
 export default function HomePage() {
-  const canvasRef  = useRef<HTMLCanvasElement>(null)
-  const videoRef   = useRef<HTMLVideoElement>(null)
-  const [navScrolled, setNavScrolled] = useState(false)
-  const [scrollY, setScrollY]         = useState(0)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [scrollY, setScrollY] = useState(0)
+
+  // Anime.js hooks
+  const heroRef = useHeroEntrance()
+  const belowFoldRef = useSectionReveal()
+  const footerBrandRef = useRef<HTMLSpanElement>(null)
+  const scrollIndicatorRef = useRef<HTMLDivElement>(null)
+
+  // Apply anime.js hooks
+  useGlitchText(footerBrandRef, 5000)
+  useFloatingElement(scrollIndicatorRef, 6)
 
   useParticles(canvasRef)
 
@@ -115,36 +107,29 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    const onScroll = () => { setNavScrolled(window.scrollY > 60); setScrollY(window.scrollY) }
+    const onScroll = () => { setScrollY(window.scrollY) }
     window.addEventListener("scroll", onScroll)
     return () => window.removeEventListener("scroll", onScroll)
   }, [])
 
-  return (
-    <div className="min-h-screen relative overflow-x-hidden" style={{ background: "#000" }}>
+  // Split title into individual letter spans for anime.js stagger
+  const titleLetters = "SAARTHI".split("").map((letter, i) => (
+    <span key={i} className="hero-letter inline-block" style={{ opacity: 0 }}>
+      {letter}
+    </span>
+  ))
 
-      {/* ── Navbar ── */}
-      <header className={`fixed top-0 left-0 right-0 z-50 px-8 py-4 flex items-center justify-between transition-all duration-500 ${navScrolled ? "bg-black/70 backdrop-blur-xl border-b border-white/5" : "bg-transparent"}`}>
-        <Link to="/" className="text-white font-bold text-sm tracking-[0.18em] uppercase">Saarthi</Link>
-        <nav className="flex items-center gap-10">
-          {[
-            { to: "/wallet", label: "Wallet" },
-            { to: "/cab",    label: "Cab"    },
-            { to: "/police", label: "Police" },
-          ].map(({ to, label }) => (
-            <Link key={to} to={to}
-              className="text-white/38 hover:text-white text-xs font-medium tracking-widest uppercase transition-colors duration-300">
-              {label}
-            </Link>
-          ))}
-        </nav>
-      </header>
+  return (
+    <div className="min-h-screen relative overflow-x-hidden noise-overlay" style={{ background: "#000" }}>
+
+      {/* ── Premium Tactical Navbar ── */}
+      <TacticalNav />
 
       {/* ══════════════════ HERO ══════════════════ */}
       <section className="relative h-screen w-full overflow-hidden"
         style={{ background: "#0a0a0e" }}>
 
-        {/* ── BG video – full screen ── */}
+        {/* ── BG video – Krishna chakra ── */}
         <video
           ref={videoRef}
           src="/chakra.mp4"
@@ -163,18 +148,24 @@ export default function HomePage() {
           background: `
             linear-gradient(
               to bottom,
-              rgba(0,0,0,0.65) 0%,
-              rgba(0,0,0,0.25) 40%,
-              rgba(0,0,0,0.25) 60%,
-              rgba(0,0,0,0.80) 100%
+              rgba(0,0,0,0.70) 0%,
+              rgba(0,0,0,0.20) 35%,
+              rgba(0,0,0,0.20) 55%,
+              rgba(0,0,0,0.85) 100%
             )
           `,
         }} />
 
-        {/* ── Left-edge depth fade (frames the content) ── */}
+        {/* ── Left-edge depth fade ── */}
         <div className="absolute inset-0 pointer-events-none" style={{
           zIndex: 11,
-          background: "linear-gradient(to right, rgba(0,0,0,0.55) 0%, transparent 45%)",
+          background: "linear-gradient(to right, rgba(0,0,0,0.60) 0%, transparent 50%)",
+        }} />
+
+        {/* ── Cinematic vignette ── */}
+        <div className="absolute inset-0 pointer-events-none" style={{
+          zIndex: 12,
+          background: "radial-gradient(ellipse 80% 80% at 50% 50%, transparent 50%, rgba(0,0,0,0.5) 100%)",
         }} />
 
         {/* ── Subtle particles ── */}
@@ -182,199 +173,340 @@ export default function HomePage() {
           className="absolute inset-0 w-full h-full pointer-events-none"
           style={{ zIndex: 15, opacity: 0.18 }} />
 
-        {/* ── Very faint violet accent bottom-left ── */}
+        {/* ── Violet accent glow ── */}
         <div className="absolute inset-0 pointer-events-none" style={{
           zIndex: 16,
-          background: "radial-gradient(ellipse 35% 45% at 18% 65%, rgba(139,92,246,0.10) 0%, transparent 70%)",
+          background: "radial-gradient(ellipse 40% 50% at 18% 60%, rgba(139,92,246,0.12) 0%, transparent 70%)",
         }} />
 
-        {/* ── Content: slightly left-center ── */}
-        <div className="absolute inset-0 flex items-center" style={{ zIndex: 50 }}>
-          <div className="w-full max-w-6xl mx-auto px-10 md:px-16">
-            <div
-              className="max-w-[580px] select-none"
-              style={{ transform: `translateY(${scrollY * 0.10}px)` }}>
+        {/* ── Bottom violet glow accent ── */}
+        <div className="absolute inset-0 pointer-events-none" style={{
+          zIndex: 16,
+          background: "radial-gradient(ellipse 50% 25% at 50% 95%, rgba(124,58,237,0.08) 0%, transparent 70%)",
+        }} />
 
-              {/* Status tag */}
-              <motion.div
-                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.8 }}
-                className="inline-flex items-center gap-2 mb-7">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#8b5cf6] animate-pulse" />
-                <span className="text-white/50 text-[10px] font-semibold tracking-[0.28em] uppercase">
+        {/* ── Content: anime.js managed entrance ── */}
+        <div ref={heroRef} className="absolute inset-0 flex items-center" style={{ zIndex: 50 }}>
+          <div className="w-full max-w-7xl mx-auto px-8 md:px-16">
+            <div
+              className="max-w-[620px] select-none"
+              style={{ transform: `translateY(${scrollY * 0.08}px)` }}>
+
+              {/* Status badge — anime.js: .hero-badge */}
+              <div className="hero-badge inline-flex items-center gap-2.5 mb-8 px-3 py-1.5 rounded-full" 
+                style={{ 
+                  opacity: 0,
+                  background: "rgba(139,92,246,0.08)",
+                  border: "1px solid rgba(139,92,246,0.2)",
+                }}>
+                <span className="w-2 h-2 rounded-full bg-[#8b5cf6] pulse-dot" />
+                <span className="text-white/55 text-[10px] font-semibold tracking-[0.28em] uppercase">
                   Digital Safety Infrastructure
                 </span>
-              </motion.div>
+              </div>
 
-              {/* Main heading – plain white, always visible */}
-              <motion.h1
-                initial={{ opacity: 0, y: 32 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.35, duration: 1.0, ease: [0.22, 1, 0.36, 1] }}
+              {/* Main heading — anime.js letter stagger: .hero-letter */}
+              <h1
                 className="font-black uppercase leading-none mb-5 text-white"
                 style={{
-                  fontSize: "clamp(3.8rem, 9.5vw, 8.5rem)",
-                  letterSpacing: "0.28em",
-                  textShadow: "0 0 60px rgba(139,92,246,0.45), 0 2px 40px rgba(0,0,0,0.8)",
+                  fontSize: "clamp(3rem, 7.5vw, 7.5rem)",
+                  letterSpacing: "0.26em",
+                  textShadow: "0 0 80px rgba(139,92,246,0.5), 0 4px 60px rgba(0,0,0,0.9)",
+                  whiteSpace: "nowrap",
                 }}>
-                Saarthi
-              </motion.h1>
+                {titleLetters}
+              </h1>
 
-              {/* Subheading */}
-              <motion.p
-                initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.65, duration: 0.9 }}
-                className="font-light uppercase mb-5"
-                style={{ fontSize: "clamp(0.62rem, 1.15vw, 0.78rem)", letterSpacing: "0.22em", color: "rgba(255,255,255,0.42)" }}>
+              {/* Subheading — anime.js: .hero-subtitle */}
+              <p
+                className="hero-subtitle font-light uppercase mb-4"
+                style={{
+                  fontSize: "clamp(0.65rem, 1.2vw, 0.82rem)",
+                  letterSpacing: "0.24em",
+                  color: "rgba(255,255,255,0.45)",
+                  opacity: 0,
+                }}>
                 Privacy-First Digital Safety Infrastructure
-              </motion.p>
+              </p>
 
-              {/* Thin divider */}
-              <motion.div
-                initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }}
-                transition={{ delay: 0.9, duration: 0.7, ease: "easeOut" }}
-                style={{ width: "52px", height: "1px", background: "rgba(255,255,255,0.25)", marginBottom: "2rem", transformOrigin: "left" }} />
+              {/* Brief description — anime.js: .hero-desc */}
+              <p
+                className="hero-desc mb-6"
+                style={{
+                  fontSize: "clamp(0.85rem, 1.15vw, 1rem)",
+                  lineHeight: 1.75,
+                  color: "rgba(255,255,255,0.35)",
+                  maxWidth: "480px",
+                  opacity: 0,
+                }}>
+                Protecting identities through cryptographic proof. Real-time ride monitoring,
+                tamper-proof emergency alerts, and offline-resilient communication — all without
+                storing a single byte of your personal data.
+              </p>
 
-              {/* CTA Buttons */}
-              <motion.div
-                initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.05, duration: 0.8 }}
-                className="flex flex-row gap-3 items-center flex-wrap">
+              {/* Thin divider — anime.js: .hero-divider */}
+              <div
+                className="hero-divider"
+                style={{
+                  width: "60px", height: "2px",
+                  background: "linear-gradient(90deg, #7c3aed, #4f46e5)",
+                  marginBottom: "1.8rem",
+                  transformOrigin: "left",
+                  opacity: 0,
+                  borderRadius: "999px",
+                }} />
+
+              {/* CTA Buttons — anime.js: .hero-cta */}
+              <div className="flex flex-row gap-3.5 items-center flex-wrap">
 
                 <Link to="/cab"
-                  className="px-7 py-3 rounded-full font-semibold text-xs tracking-widest uppercase text-white transition-all duration-300"
-                  style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5)", boxShadow: "0 0 22px rgba(124,58,237,0.45)" }}
-                  onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 0 32px rgba(139,92,246,0.65)")}
-                  onMouseLeave={e => (e.currentTarget.style.boxShadow = "0 0 22px rgba(124,58,237,0.45)")}>
+                  className="hero-cta btn-cta-violet px-8 py-3.5 font-semibold text-xs tracking-widest uppercase text-white flex items-center gap-2"
+                  style={{ opacity: 0 }}>
+                  <Sparkles className="w-3.5 h-3.5" />
                   Launch Cab
+                  <ArrowRight className="w-3.5 h-3.5 ml-1" />
                 </Link>
 
                 <Link to="/wallet"
-                  className="px-7 py-3 rounded-full font-semibold text-xs tracking-widest uppercase border border-white/20 hover:border-white/40 transition-all duration-300"
-                  style={{ color: "rgba(255,255,255,0.55)", background: "rgba(255,255,255,0.04)" }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.9)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 0 18px rgba(255,255,255,0.08)" }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,0.55)"; (e.currentTarget as HTMLElement).style.boxShadow = "none" }}>
+                  className="hero-cta px-8 py-3.5 rounded-full font-semibold text-xs tracking-widest uppercase border border-white/15 hover:border-white/35 transition-all duration-400 group"
+                  style={{
+                    color: "rgba(255,255,255,0.5)",
+                    background: "rgba(255,255,255,0.04)",
+                    backdropFilter: "blur(8px)",
+                    opacity: 0,
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.color = "rgba(255,255,255,0.95)"
+                    e.currentTarget.style.boxShadow = "0 0 24px rgba(255,255,255,0.06)"
+                    e.currentTarget.style.background = "rgba(255,255,255,0.08)"
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.color = "rgba(255,255,255,0.5)"
+                    e.currentTarget.style.boxShadow = "none"
+                    e.currentTarget.style.background = "rgba(255,255,255,0.04)"
+                  }}>
                   Open Identity Vault
                 </Link>
-              </motion.div>
+              </div>
 
-              {/* Stats row */}
-              <motion.div
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5, duration: 0.9 }}
-                className="flex items-center gap-7 mt-10">
+              {/* Stats row — anime.js: .hero-stat */}
+              <div className="flex items-center gap-0 mt-9">
                 {[
-                  { value: "SHA-256", label: "Encryption"  },
-                  { value: "0ms",     label: "Data Stored" },
-                  { value: "E2E",     label: "Client-Side" },
+                  { value: "SHA-256", label: "Encryption" },
+                  { value: "0 bytes", label: "Data Stored" },
+                  { value: "E2E", label: "Client-Side" },
+                  { value: "RSA-PSS", label: "Signed Alerts" },
                 ].map((s, i) => (
-                  <div key={i} className="flex flex-col gap-0.5">
-                    <span className="text-xs font-bold tracking-widest" style={{ color: "rgba(255,255,255,0.62)" }}>{s.value}</span>
-                    <span className="text-[9px] tracking-[0.2em] uppercase" style={{ color: "rgba(255,255,255,0.20)" }}>{s.label}</span>
+                  <div key={i} className="hero-stat flex flex-col gap-0.5 px-4 first:pl-0" 
+                    style={{ 
+                      opacity: 0,
+                      borderLeft: i === 0 ? "none" : "1px solid rgba(255,255,255,0.08)",
+                    }}>
+                    <span className="text-xs font-bold tracking-widest" style={{ color: "rgba(255,255,255,0.65)" }}>{s.value}</span>
+                    <span className="text-[9px] tracking-[0.2em] uppercase" style={{ color: "rgba(255,255,255,0.22)" }}>{s.label}</span>
                   </div>
                 ))}
-              </motion.div>
+              </div>
+
+              {/* Feature pills — anime.js: .hero-pill */}
+              <div className="flex flex-wrap gap-2 mt-6">
+                {[
+                  "Zero-Knowledge Proof",
+                  "Geo-Fenced Routes",
+                  "Offline Relay",
+                  "Tamper-Proof Logs",
+                ].map((tag, i) => (
+                  <span
+                    key={i}
+                    className="hero-pill px-3.5 py-1.5 rounded-full text-[9px] font-semibold tracking-[0.15em] uppercase transition-all duration-300 hover:border-[rgba(139,92,246,0.35)]"
+                    style={{
+                      color: "rgba(139,92,246,0.75)",
+                      background: "rgba(139,92,246,0.06)",
+                      border: "1px solid rgba(139,92,246,0.15)",
+                      backdropFilter: "blur(4px)",
+                      opacity: 0,
+                    }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Scroll indicator – bottom center */}
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 2.2, duration: 0.8 }}
-          className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
-          style={{ zIndex: 50 }}>
-          <span className="text-white/18 text-[9px] font-medium tracking-[0.3em] uppercase">Scroll</span>
-          <div className="w-px h-9 overflow-hidden relative">
+        {/* Scroll indicator — anime.js: .hero-scroll-indicator */}
+        <div
+          ref={scrollIndicatorRef}
+          className="hero-scroll-indicator absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
+          style={{ zIndex: 50, opacity: 0 }}>
+          <span className="text-white/15 text-[9px] font-medium tracking-[0.35em] uppercase">Scroll</span>
+          <div className="w-px h-10 overflow-hidden relative">
             <motion.div
-              animate={{ y: [-36, 36] }}
-              transition={{ repeat: Infinity, duration: 1.9, ease: "linear" }}
+              animate={{ y: [-40, 40] }}
+              transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
               className="absolute inset-x-0 top-0 h-full"
-              style={{ background: "linear-gradient(to bottom, transparent, rgba(255,255,255,0.35), transparent)" }} />
+              style={{ background: "linear-gradient(to bottom, transparent, rgba(139,92,246,0.5), transparent)" }} />
           </div>
-        </motion.div>
+        </div>
       </section>
 
-      {/* ══════════════════ BELOW FOLD ══════════════════ */}
-      <div className="relative" style={{ background: "#030305" }}>
+      {/* ══════════════════ BELOW FOLD — anime.js section reveal ══════════════════ */}
+      <div ref={belowFoldRef} className="relative" style={{ background: "#030305" }}>
+
+        {/* Floating orbs */}
+        <div className="bg-orb-1" style={{ top: "10%", left: "-5%", zIndex: 0 }} />
+        <div className="bg-orb-2" style={{ top: "50%", right: "-8%", zIndex: 0 }} />
+
+        {/* Tactical overlays */}
+        <div className="tactical-gradient-overlay" style={{ position: "absolute" }} />
+        <div className="tactical-grid" style={{ position: "absolute" }} />
 
         {/* Section separator glow */}
-        <div className="absolute top-0 left-0 right-0 h-px"
-          style={{ background: "linear-gradient(90deg, transparent, rgba(139,92,246,0.3), transparent)" }} />
+        <div className="section-divider absolute top-0 left-0 right-0" />
 
-        {/* Problem */}
-        <Section id="about" className="px-8 py-28 max-w-5xl mx-auto">
-          <motion.div variants={fadeUp} className="flex items-center gap-2 mb-4">
-            <div className="w-4 h-px bg-[#8b5cf6]" />
-            <span className="text-[#8b5cf6] text-[10px] font-bold tracking-[0.3em] uppercase">The Problem</span>
-          </motion.div>
-          <motion.h2 variants={fadeUp} className="text-3xl md:text-4xl font-bold text-white mb-4 leading-snug">
-            Privacy is broken<br />at the infrastructure level.
-          </motion.h2>
-          <motion.p variants={fadeUp} className="text-white/35 text-base mb-14 max-w-xl leading-relaxed">
+        {/* Problem section */}
+        <section className="anim-section px-8 py-32 max-w-6xl mx-auto relative">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-8 h-px bg-gradient-to-r from-[#8b5cf6] to-transparent" />
+            <span className="anim-heading text-[#8b5cf6] text-[10px] font-bold tracking-[0.3em] uppercase" style={{ opacity: 0 }}>The Problem</span>
+          </div>
+          <h2 className="anim-heading text-4xl md:text-5xl font-bold text-white mb-5 leading-tight" style={{ opacity: 0 }}>
+            Privacy is broken<br />
+            <span className="gradient-text-violet">at the infrastructure level.</span>
+          </h2>
+          <p className="anim-desc text-white/35 text-base md:text-lg mb-16 max-w-xl leading-relaxed" style={{ opacity: 0 }}>
             Traditional platforms store raw personal data in centralized servers. One breach exposes everyone.
-          </motion.p>
-          <div className="grid md:grid-cols-2 gap-3">
+            Your identity shouldn't be a liability.
+          </p>
+          <div className="grid md:grid-cols-2 gap-4">
             {[
-              { icon: Shield,        title: "Raw Identity Storage",        desc: "Platforms store unencrypted personal data in centralized servers." },
-              { icon: AlertTriangle, title: "Centralized Data Leaks",      desc: "Central points of failure mean one hack compromises entire user bases." },
-              { icon: MapPin,        title: "Ride-Sharing Safety Gaps",    desc: "Vulnerable users face risks with limited real-time route monitoring." },
-              { icon: Radio,         title: "Emergency Connectivity Gaps", desc: "Internet outages during disasters cut off the very systems meant to save lives." },
-            ].map(({ icon: Icon, title, desc }, i) => (
-              <motion.div key={i} variants={fadeUp}
-                className="rounded-2xl p-6 border border-white/6 hover:border-[#8b5cf6]/30 transition-all duration-300 group"
-                style={{ background: "rgba(255,255,255,0.025)" }}
-                onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 0 24px rgba(139,92,246,0.1)")}
-                onMouseLeave={e => (e.currentTarget.style.boxShadow = "none")}>
-                <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-4"
-                  style={{ background: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.2)" }}>
-                  <Icon className="w-4.5 h-4.5 text-[#8b5cf6]" />
+              { icon: Shield, title: "Raw Identity Storage", desc: "Platforms store unencrypted personal data in centralized servers. One server compromise = millions exposed.", accent: "#ef4444" },
+              { icon: AlertTriangle, title: "Centralized Data Leaks", desc: "Central points of failure mean one hack compromises entire user bases. No cryptographic verification.", accent: "#f59e0b" },
+              { icon: MapPin, title: "Ride-Sharing Safety Gaps", desc: "Vulnerable users face risks with limited real-time route monitoring and no tamper-proof alerting.", accent: "#8b5cf6" },
+              { icon: Radio, title: "Emergency Connectivity Gaps", desc: "Internet outages during disasters cut off the very systems meant to save lives. No offline fallback.", accent: "#3b82f6" },
+            ].map(({ icon: Icon, title, desc, accent }, i) => (
+              <div key={i}
+                className="anim-card tactical-card rounded-2xl p-7 group"
+                style={{ opacity: 0 }}
+              >
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center mb-5 transition-all duration-300 group-hover:scale-110"
+                  style={{ background: `${accent}15`, border: `1px solid ${accent}30` }}>
+                  <Icon className="w-5 h-5" style={{ color: accent }} />
                 </div>
-                <h3 className="text-white font-semibold text-sm mb-1.5">{title}</h3>
+                <h3 className="text-white font-semibold text-base mb-2">{title}</h3>
                 <p className="text-white/35 text-sm leading-relaxed">{desc}</p>
-              </motion.div>
+              </div>
             ))}
           </div>
-        </Section>
+        </section>
 
-        {/* Solution */}
-        <Section id="architecture" className="px-8 py-28">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-16">
-              <motion.div variants={fadeUp} className="inline-flex items-center gap-2 mb-4">
-                <div className="w-4 h-px bg-[#8b5cf6]" />
-                <span className="text-[#8b5cf6] text-[10px] font-bold tracking-[0.3em] uppercase">Our Solution</span>
-                <div className="w-4 h-px bg-[#8b5cf6]" />
-              </motion.div>
-              <motion.h2 variants={fadeUp} className="text-3xl md:text-4xl font-bold text-white mb-3">
-                Three pillars of<br />privacy-first infrastructure.
-              </motion.h2>
-            </div>
-            <div className="grid md:grid-cols-3 gap-4">
+        {/* Stats bar between sections */}
+        <section className="anim-section relative">
+          <div className="section-divider" />
+          <div className="max-w-6xl mx-auto px-8 py-16">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               {[
-                { id: "identity", icon: Lock,  to: "/wallet", title: "Cryptographic Identity Vault", desc: "Store only hashes — never raw IDs. Prove identity without exposing data." },
-                { id: "cab",      icon: Car,   to: "/cab",    title: "GPS-Based Smart Cab Monitoring", desc: "Real-time geo-fencing and deviation detection for ride safety." },
-                { id: "police",   icon: Radio, to: "/police", title: "Multi-Layer Emergency Relay", desc: "Internet + mesh fallbacks so alerts get through when it matters most." },
-              ].map(({ icon: Icon, to, title, desc }, i) => (
-                <motion.div key={i} variants={fadeUp}>
-                  <Link to={to} className="block rounded-2xl p-6 border border-white/6 hover:border-[#8b5cf6]/40 transition-all duration-300 group h-full"
-                    style={{ background: "rgba(255,255,255,0.02)" }}
-                    onMouseEnter={e => (e.currentTarget.style.boxShadow = "0 0 32px rgba(139,92,246,0.12)", e.currentTarget.style.transform = "translateY(-2px)")}
-                    onMouseLeave={e => (e.currentTarget.style.boxShadow = "none", e.currentTarget.style.transform = "none")}>
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-5"
-                      style={{ background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.25)" }}>
-                      <Icon className="w-5 h-5 text-[#8b5cf6]" />
-                    </div>
-                    <h3 className="text-white font-semibold text-sm mb-2">{title}</h3>
-                    <p className="text-white/35 text-sm leading-relaxed mb-4">{desc}</p>
-                    <span className="text-[#8b5cf6]/60 text-[10px] font-bold tracking-widest uppercase group-hover:text-[#8b5cf6] transition-colors">
-                      Explore →
-                    </span>
-                  </Link>
-                </motion.div>
+                { value: "2048-bit", label: "RSA Key Pairs", icon: Lock },
+                { value: "300m", label: "Geo-Fence Radius", icon: MapPin },
+                { value: "<2min", label: "Auto Escalation", icon: AlertTriangle },
+                { value: "100%", label: "Offline Capable", icon: Radio },
+              ].map(({ value, label, icon: Icon }, i) => (
+                <div key={i} className="anim-card flex flex-col items-center text-center py-6 px-4 rounded-2xl"
+                  style={{
+                    opacity: 0,
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                  }}>
+                  <Icon className="w-5 h-5 text-[#8b5cf6] mb-3" />
+                  <span className="text-white font-extrabold text-2xl mb-1 tracking-tight">{value}</span>
+                  <span className="text-white/25 text-[10px] font-semibold tracking-[0.2em] uppercase">{label}</span>
+                </div>
               ))}
             </div>
           </div>
-        </Section>
+          <div className="section-divider" />
+        </section>
 
-        {/* Footer line */}
-        <div className="px-8 py-10 border-t border-white/5 flex items-center justify-between max-w-5xl mx-auto">
-          <span className="text-white/15 text-xs tracking-widest uppercase">Saarthi · Privacy-First Safety</span>
+        {/* Solution section */}
+        <section className="anim-section px-8 py-32 relative">
+          <div className="max-w-6xl mx-auto">
+            <div className="text-center mb-20">
+              <div className="inline-flex items-center gap-3 mb-5">
+                <div className="w-8 h-px bg-gradient-to-r from-transparent to-[#8b5cf6]" />
+                <span className="anim-heading text-[#8b5cf6] text-[10px] font-bold tracking-[0.3em] uppercase" style={{ opacity: 0 }}>Our Solution</span>
+                <div className="w-8 h-px bg-gradient-to-l from-transparent to-[#8b5cf6]" />
+              </div>
+              <h2 className="anim-heading text-4xl md:text-5xl font-bold text-white mb-4 leading-tight" style={{ opacity: 0 }}>
+                Three pillars of<br />
+                <span className="gradient-text-violet">privacy-first infrastructure.</span>
+              </h2>
+              <p className="anim-desc text-white/30 text-base max-w-lg mx-auto leading-relaxed" style={{ opacity: 0 }}>
+                Built from the ground up with zero-knowledge principles, real-time monitoring, and cryptographic proof at every layer.
+              </p>
+            </div>
+            <div className="grid md:grid-cols-3 gap-5">
+              {[
+                { icon: Lock, to: "/wallet", title: "Cryptographic Identity Vault", desc: "Store only hashes — never raw IDs. Prove identity without exposing data. SHA-256 client-side hashing.", tag: "Zero Knowledge", color: "#8b5cf6" },
+                { icon: Car, to: "/cab", title: "GPS Smart Cab Monitoring", desc: "Real-time geo-fencing with 300m corridor. Deviation detection triggers RSA-signed emergency packets.", tag: "Real-Time", color: "#3b82f6" },
+                { icon: Radio, to: "/police", title: "Multi-Layer Emergency Relay", desc: "Internet + mesh fallbacks ensure alerts reach authorities. Tamper-proof trace chains for evidence.", tag: "Offline-First", color: "#10b981" },
+              ].map(({ icon: Icon, to, title, desc, tag, color }, i) => (
+                <div key={i} className="anim-card" style={{ opacity: 0 }}>
+                  <Link to={to} className="block tactical-card rounded-2xl p-7 group h-full relative">
+                    {/* Top accent line */}
+                    <div className="absolute top-0 left-6 right-6 h-px opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                      style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }} />
+                    
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 group-hover:scale-110"
+                        style={{ background: `${color}15`, border: `1px solid ${color}30` }}>
+                        <Icon className="w-5.5 h-5.5" style={{ color }} />
+                      </div>
+                      <span className="text-[9px] font-bold tracking-[0.2em] uppercase px-2.5 py-1 rounded-full"
+                        style={{ color, background: `${color}12`, border: `1px solid ${color}25` }}>
+                        {tag}
+                      </span>
+                    </div>
+                    <h3 className="text-white font-semibold text-base mb-2.5">{title}</h3>
+                    <p className="text-white/35 text-sm leading-relaxed mb-6">{desc}</p>
+                    <div className="flex items-center gap-2 text-sm font-semibold transition-all duration-300 group-hover:gap-3" style={{ color }}>
+                      <span className="text-[11px] tracking-widest uppercase">Explore</span>
+                      <ArrowRight className="w-3.5 h-3.5 transition-transform duration-300 group-hover:translate-x-1" />
+                    </div>
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Trust section */}
+        <section className="anim-section px-8 py-20 relative">
+          <div className="section-divider mb-16" />
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[
+                { icon: CheckCircle2, text: "No Third-Party APIs" },
+                { icon: Lock, text: "Client-Side Only" },
+                { icon: Shield, text: "Open Source Stack" },
+                { icon: Sparkles, text: "Military-Grade Crypto" },
+              ].map(({ icon: Icon, text }, i) => (
+                <div key={i} className="anim-card flex items-center gap-2.5 justify-center py-4 px-3 rounded-xl"
+                  style={{ opacity: 0, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                  <Icon className="w-4 h-4 text-[#10b981] flex-shrink-0" />
+                  <span className="text-white/50 text-xs font-medium">{text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <div className="section-divider" />
+        <div className="px-8 py-12 flex items-center justify-between max-w-6xl mx-auto">
+          <div className="flex items-center gap-3">
+            <div className="w-1.5 h-1.5 rounded-full bg-[#8b5cf6] pulse-dot" />
+            <span ref={footerBrandRef} className="text-white/15 text-xs tracking-widest uppercase">Saarthi · Privacy-First Safety</span>
+          </div>
           <span className="text-white/15 text-xs tracking-widest uppercase">Built for Hack-A-League</span>
         </div>
       </div>

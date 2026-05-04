@@ -4,6 +4,13 @@ import {
   Lock, Eye, EyeOff, FileText, Upload, Fingerprint, X, Copy, Check,
   ShieldCheck, Cpu, Zap, FileImage, FileArchive, Hash, ChevronDown, ChevronUp,
 } from "lucide-react"
+import {
+  useWalletEntrance,
+  useStrengthRingAnime,
+  animateNewProofCard,
+  triggerSuccessFlash,
+  triggerRipple,
+} from "../lib/useAnimeAnimations"
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -95,6 +102,12 @@ export function WalletSection() {
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const typingTimer   = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // ── Anime.js hooks ──────────────────────────────────────────────────────
+  const walletRef = useWalletEntrance()
+  const strengthCircleRef = useRef<SVGCircleElement>(null)
+  const storeButtonRef = useRef<HTMLButtonElement>(null)
+  const proofGridRef = useRef<HTMLDivElement>(null)
+
   // ── Progress bar animation while hashing ────────────────────────────────
 
   useEffect(() => {
@@ -185,48 +198,50 @@ export function WalletSection() {
   const sColor   = strengthColor(strength)
   const sLabel   = strengthLabel(strength)
 
+  // Anime.js strength ring animation
+  useStrengthRingAnime(strengthCircleRef, strength, 40)
+
   // ────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="px-4 sm:px-8 py-10 max-w-6xl mx-auto">
+    <div ref={walletRef} className="px-4 sm:px-8 py-12 max-w-6xl mx-auto">
 
       {/* ── Hero header ── */}
-      <div className="mb-10">
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#7C3AED]/40 bg-[#7C3AED]/10 text-[#a78bfa] text-xs font-semibold mb-4">
+      <div className="mb-12">
+        <div>
+          <div className="wallet-badge inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-[#7C3AED]/30 bg-[#7C3AED]/8 text-[#a78bfa] text-xs font-semibold mb-5 animate-border-glow" style={{ opacity: 0 }}>
             <ShieldCheck className="w-3.5 h-3.5" />
             Cryptographic Identity Vault
           </div>
-          <h2 className="text-4xl font-extrabold text-white mb-3 leading-tight">
-            Identity <span style={{ background: "linear-gradient(90deg,#7C3AED,#2563EB)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>Wallet</span>
+          <h2 className="wallet-title text-4xl md:text-5xl font-extrabold text-white mb-4 leading-tight" style={{ opacity: 0 }}>
+            Identity <span className="gradient-text-violet">Wallet</span>
           </h2>
-          <p className="text-[#A1A1AA] text-base max-w-xl">
+          <p className="wallet-subtitle text-[#A1A1AA] text-base md:text-lg max-w-xl leading-relaxed" style={{ opacity: 0 }}>
             Store cryptographic proofs of your documents — never the documents themselves.
-            Zero raw data leaves your device.
+            <br /><span className="text-white/30">Zero raw data leaves your device. Ever.</span>
           </p>
-        </motion.div>
+        </div>
 
         {/* Security badges */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="flex flex-wrap gap-2.5 mt-5">
+        <div className="flex flex-wrap gap-2.5 mt-6">
           {[
             { icon: <ShieldCheck className="w-3.5 h-3.5" />, label: "Zero Raw Data Storage",  color: "#7C3AED" },
             { icon: <Cpu         className="w-3.5 h-3.5" />, label: "Client-Side Hashing",    color: "#2563EB" },
             { icon: <Zap         className="w-3.5 h-3.5" />, label: "Tamper-Proof Proof",      color: "#059669" },
           ].map(b => (
             <span key={b.label}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border"
+              className="wallet-sec-badge inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all duration-300 hover:scale-105"
               style={{
+                opacity: 0,
                 color: b.color,
-                borderColor: `${b.color}55`,
-                background: `${b.color}18`,
-                boxShadow: `0 0 10px ${b.color}20`,
+                borderColor: `${b.color}40`,
+                background: `${b.color}10`,
+                boxShadow: `0 0 12px ${b.color}15`,
               }}>
               {b.icon}{b.label}
             </span>
           ))}
-        </motion.div>
+        </div>
       </div>
 
       {/* ── Two-column layout ── */}
@@ -236,15 +251,17 @@ export function WalletSection() {
         <div className="lg:col-span-2 space-y-6">
 
           {/* ── Upload zone ── */}
-          <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-            <div className="rounded-2xl overflow-hidden border border-white/10"
-              style={{ background: "rgba(18,18,28,0.7)", backdropFilter: "blur(20px)" }}>
-              <div className="px-5 pt-5 pb-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Hash className="w-4 h-4 text-[#7C3AED]" />
+          <div>
+            <div className="wallet-upload rounded-2xl overflow-hidden border border-white/8 glass-panel"
+              style={{ opacity: 0, background: "rgba(18,18,28,0.7)" }}>
+              <div className="px-6 pt-6 pb-3">
+                <div className="flex items-center gap-2.5 mb-1.5">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.25)" }}>
+                    <Hash className="w-3.5 h-3.5 text-[#7C3AED]" />
+                  </div>
                   <span className="text-white font-bold text-sm">Generate Proof</span>
                 </div>
-                <p className="text-[#A1A1AA] text-xs">Upload any document to generate an irreversible SHA-256 cryptographic hash</p>
+                <p className="text-[#A1A1AA] text-xs ml-9.5">Upload any document to generate an irreversible SHA-256 cryptographic hash</p>
               </div>
 
               {/* Drag-drop area */}
@@ -378,11 +395,18 @@ export function WalletSection() {
                         <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
                           className="flex gap-2">
                           <motion.button
-                            onClick={addToWallet}
-                            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-                            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white"
-                            style={{ background: "linear-gradient(135deg,#7C3AED,#2563EB)", boxShadow: "0 0 24px rgba(124,58,237,0.4)" }}>
-                            Store in Vault
+                            onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                              addToWallet()
+                              // Anime.js success flash
+                              if (storeButtonRef.current) {
+                                triggerSuccessFlash(storeButtonRef.current)
+                              }
+                            }}
+                            ref={storeButtonRef}
+                            whileHover={{ scale: 1.02, y: -1 }} whileTap={{ scale: 0.97 }}
+                            className="flex-1 py-3 rounded-xl text-sm font-bold text-white btn-cta-violet"
+                            style={{ background: "linear-gradient(135deg,#7C3AED,#4f46e5)", boxShadow: "0 4px 28px rgba(124,58,237,0.45)" }}>
+                            🔐 Store in Vault
                           </motion.button>
                           <button onClick={() => { setFile(null); setGeneratedHash(null); setProgress(0) }}
                             className="px-4 py-2.5 rounded-xl text-sm font-medium text-[#A1A1AA] hover:text-white transition-colors"
@@ -396,10 +420,10 @@ export function WalletSection() {
                 )}
               </AnimatePresence>
             </div>
-          </motion.div>
+          </div>
 
           {/* ── Proof cards ── */}
-          <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          <div>
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="text-white font-bold text-base">Stored Proofs</h3>
@@ -505,16 +529,17 @@ export function WalletSection() {
                 </AnimatePresence>
               </div>
             )}
-          </motion.div>
+          </div>
         </div>
 
         {/* ─────────── RIGHT SIDEBAR ─────────── */}
         <div className="space-y-4 lg:sticky lg:top-24">
 
           {/* Identity Strength Panel */}
-          <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }}
-            className="rounded-2xl p-5 overflow-hidden relative"
+          <div
+            className="wallet-strength rounded-2xl p-5 overflow-hidden relative"
             style={{
+              opacity: 0,
               background: "rgba(18,18,28,0.85)",
               border: "1px solid rgba(255,255,255,0.09)",
               backdropFilter: "blur(20px)",
@@ -538,14 +563,13 @@ export function WalletSection() {
                 <div className="relative">
                   <svg width="96" height="96" className="-rotate-90">
                     <circle cx="48" cy="48" r="40" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="7" />
-                    <motion.circle
+                    <circle
+                      ref={strengthCircleRef}
                       cx="48" cy="48" r="40" fill="none" strokeWidth="7"
                       strokeLinecap="round"
                       stroke={sColor}
                       strokeDasharray={`${2 * Math.PI * 40}`}
-                      animate={{ strokeDashoffset: 2 * Math.PI * 40 * (1 - strength / 100) }}
-                      initial={{ strokeDashoffset: 2 * Math.PI * 40 }}
-                      transition={{ duration: 0.9, ease: "easeOut" }}
+                      strokeDashoffset={2 * Math.PI * 40}
                       style={{ filter: `drop-shadow(0 0 6px ${sColor}80)` }}
                     />
                   </svg>
@@ -588,12 +612,13 @@ export function WalletSection() {
                 ))}
               </div>
             </div>
-          </motion.div>
+          </div>
 
           {/* How it works panel */}
-          <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.4 }}
-            className="rounded-2xl p-4"
+          <div
+            className="wallet-sidebar rounded-2xl p-4"
             style={{
+              opacity: 0,
               background: "rgba(18,18,28,0.7)",
               border: "1px solid rgba(255,255,255,0.07)",
               backdropFilter: "blur(16px)",
@@ -606,7 +631,7 @@ export function WalletSection() {
                 { n: "3", text: "Only the hash is stored — never the file" },
                 { n: "4", text: "Present hash as tamper-proof identity proof" },
               ].map(step => (
-                <div key={step.n} className="flex items-start gap-2.5">
+                <div key={step.n} className="wallet-step flex items-start gap-2.5" style={{ opacity: 0 }}>
                   <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-[#7C3AED]"
                     style={{ background: "rgba(124,58,237,0.18)", border: "1px solid rgba(124,58,237,0.3)" }}>
                     {step.n}
@@ -615,7 +640,7 @@ export function WalletSection() {
                 </div>
               ))}
             </div>
-          </motion.div>
+          </div>
 
         </div>
       </div>
