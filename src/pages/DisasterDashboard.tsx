@@ -155,7 +155,7 @@ export default function DisasterDashboard() {
       {/* Main content */}
       <div className="flex h-[calc(100vh-56px)] overflow-hidden">
         {/* Left sidebar */}
-        <div className="w-[340px] shrink-0 overflow-y-auto border-r border-slate-800 bg-slate-900/50 p-4">
+        <div className="h-full w-[340px] shrink-0 overflow-y-auto border-r border-slate-800 bg-slate-900/50 p-4">
           <SimulationControls
             agents={agents}
             fairnessGamma={fairnessGamma}
@@ -255,7 +255,7 @@ export default function DisasterDashboard() {
         </div>
 
         {/* Right sidebar — allocation feed */}
-        <div className="w-[360px] shrink-0 space-y-3 overflow-y-auto border-l border-slate-800 bg-slate-900/50 p-4">
+        <div className="h-full w-[360px] shrink-0 space-y-3 overflow-y-auto border-l border-slate-800 bg-slate-900/50 p-4">
           <PowerLedgerCard snapshot={powerLedger} />
           <StakeholderAgentsCard stakeholders={powerLedger?.stakeholderAgents} />
           <NegotiationTranscriptCard payload={negotiationLog} />

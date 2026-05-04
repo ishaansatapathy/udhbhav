@@ -26,10 +26,6 @@ function roundLabel(r: number) {
 export default function NegotiationTranscriptCard({ payload }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [payload?.lines.length, payload?.updatedAt])
-
   if (!payload || payload.lines.length === 0) {
     return (
       <Card className="border-violet-900/40 bg-slate-950 text-slate-100 shadow-sm">
@@ -74,7 +70,6 @@ export default function NegotiationTranscriptCard({ payload }: Props) {
               <div className="text-slate-300/95">{ln.body}</div>
             </div>
           ))}
-          <div ref={bottomRef} />
         </div>
       </CardContent>
     </Card>

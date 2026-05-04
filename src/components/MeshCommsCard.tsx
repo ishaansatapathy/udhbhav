@@ -36,10 +36,6 @@ export default function MeshCommsCard({ payload }: Props) {
     return list.filter((m) => matchesTab(m, tab))
   }, [payload?.messages, tab])
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [filtered.length, payload?.updatedAt, tab])
-
   const empty = !payload || payload.messages.length === 0
 
   return (
@@ -105,7 +101,6 @@ export default function MeshCommsCard({ payload }: Props) {
                 </div>
               )
             })}
-            <div ref={bottomRef} />
           </div>
         )}
       </CardContent>
