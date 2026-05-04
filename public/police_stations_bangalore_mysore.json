@@ -1,0 +1,110 @@
+[
+  {
+    "id": "ps_001",
+    "name": "Vidhana Soudha Police Station",
+    "address": "Vidhana Soudha, Ambedkar Veedhi, Bangalore, Karnataka 560001",
+    "phone": "080-22942250",
+    "lat": 12.9794,
+    "lng": 77.5906,
+    "area": "Bangalore Central"
+  },
+  {
+    "id": "ps_002", 
+    "name": "Cubbon Park Police Station",
+    "address": "Cubbon Park, Kasturba Road, Bangalore, Karnataka 560001",
+    "phone": "080-22942251",
+    "lat": 12.9716,
+    "lng": 77.5946,
+    "area": "Bangalore Central"
+  },
+  {
+    "id": "ps_003",
+    "name": "UB City Police Station",
+    "address": "UB City Mall, Vittal Mallya Road, Bangalore, Karnataka 560001", 
+    "phone": "080-22942252",
+    "lat": 12.9716,
+    "lng": 77.5946,
+    "area": "Bangalore Central"
+  },
+  {
+    "id": "ps_004",
+    "name": "Brigade Road Police Station",
+    "address": "Brigade Road, Bangalore, Karnataka 560025",
+    "phone": "080-22942253",
+    "lat": 12.9716,
+    "lng": 77.6033,
+    "area": "Bangalore East"
+  },
+  {
+    "id": "ps_005",
+    "name": "Koramangala Police Station", 
+    "address": "80 Feet Road, Koramangala, Bangalore, Karnataka 560095",
+    "phone": "080-22942254",
+    "lat": 12.9279,
+    "lng": 77.6271,
+    "area": "Bangalore South"
+  },
+  {
+    "id": "ps_006",
+    "name": "BTM Layout Police Station",
+    "address": "BTM Layout, Bangalore, Karnataka 560068",
+    "phone": "080-22942255",
+    "lat": 12.9165,
+    "lng": 77.6101,
+    "area": "Bangalore South"
+  },
+  {
+    "id": "ps_007",
+    "name": "Electronic City Police Station",
+    "address": "Electronic City Phase 1, Bangalore, Karnataka 560100",
+    "phone": "080-22942256", 
+    "lat": 12.8456,
+    "lng": 77.6603,
+    "area": "Bangalore South"
+  },
+  {
+    "id": "ps_008",
+    "name": "Whitefield Police Station",
+    "address": "ITPL Main Road, Whitefield, Bangalore, Karnataka 560066",
+    "phone": "080-22942257",
+    "lat": 12.9698,
+    "lng": 77.7500,
+    "area": "Bangalore East"
+  },
+  {
+    "id": "ps_009",
+    "name": "Hebbal Police Station",
+    "address": "Outer Ring Road, Hebbal, Bangalore, Karnataka 560024",
+    "phone": "080-22942258",
+    "lat": 13.0358,
+    "lng": 77.5970,
+    "area": "Bangalore North"
+  },
+  {
+    "id": "ps_010",
+    "name": "Yelahanka Police Station", 
+    "address": "Yelahanka New Town, Bangalore, Karnataka 560064",
+    "phone": "080-22942259",
+    "lat": 13.1007,
+    "lng": 77.5963,
+    "area": "Bangalore North"
+  },
+  {
+    "id": "ps_011",
+    "name": "Mysuru City Police Station",
+    "address": "Sayyaji Rao Road, Mysuru, Karnataka 570001",
+    "phone": "0821-2421339",
+    "lat": 12.2958,
+    "lng": 76.6394,
+    "area": "Mysuru"
+  },
+  {
+    "id": "ps_012",
+    "name": "Chamundi Hill Police Station",
+    "address": "Chamundi Hills, Mysuru, Karnataka 570008", 
+    "phone": "0821-2421340",
+    "lat": 12.2724,
+    "lng": 76.6730,
+    "area": "Mysuru"
+  }
+]
