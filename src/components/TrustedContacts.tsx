@@ -110,7 +110,7 @@ export default function TrustedContacts() {
     <div className="emer-panel tactical-card rounded-xl overflow-hidden" style={{ opacity: 0 }}>
 
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-white/6">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-violet-500/15 flex items-center justify-center">
             <Shield className="w-4 h-4 text-violet-400" />
@@ -129,7 +129,7 @@ export default function TrustedContacts() {
       </div>
 
       {/* Add Contact Form */}
-      <div className="px-5 py-4 border-b border-white/[0.06]">
+      <div className="px-5 py-4 border-b border-white/6">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#52525b]" />
@@ -139,7 +139,7 @@ export default function TrustedContacts() {
               value={phone}
               onChange={e => setPhone(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleAdd()}
-              className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/10 text-white text-xs
+              className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-white/4 border border-white/10 text-white text-xs
                 placeholder:text-[#52525b] focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
             />
           </div>
@@ -162,7 +162,7 @@ export default function TrustedContacts() {
             value={email}
             onChange={e => setEmail(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleAdd()}
-            className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-white/[0.04] border border-white/10 text-white text-xs
+            className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-white/4 border border-white/10 text-white text-xs
               placeholder:text-[#52525b] focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/20 transition-all"
           />
         </div>
@@ -178,7 +178,7 @@ export default function TrustedContacts() {
             <div className={`flex items-center gap-2 px-5 py-2.5 text-xs font-medium ${
               error ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"
             }`}>
-              {error ? <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> : <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />}
+              {error ? <AlertCircle className="w-3.5 h-3.5 shrink-0" /> : <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
               {error || success}
             </div>
           </motion.div>
@@ -203,7 +203,7 @@ export default function TrustedContacts() {
       )}
 
       {!loading && contacts.length > 0 && (
-        <div className="divide-y divide-white/[0.04]">
+        <div className="divide-y divide-white/4">
           <AnimatePresence initial={false}>
             {contacts.map(contact => (
               <motion.div
@@ -215,14 +215,14 @@ export default function TrustedContacts() {
                 className="overflow-hidden"
               >
                 <div className={`flex items-center gap-3 px-5 py-3 transition-colors ${
-                  contact.enabled ? "hover:bg-white/[0.02]" : "opacity-50"
+                  contact.enabled ? "hover:bg-white/2" : "opacity-50"
                 }`}>
 
                   {/* Phone icon */}
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                     contact.enabled
                       ? "bg-emerald-500/15 border border-emerald-500/25"
-                      : "bg-white/[0.04] border border-white/10"
+                      : "bg-white/4 border border-white/10"
                   }`}>
                     <Phone className={`w-3.5 h-3.5 ${contact.enabled ? "text-emerald-400" : "text-[#52525b]"}`} />
                   </div>
@@ -276,7 +276,7 @@ export default function TrustedContacts() {
       )}
 
       {/* Footer hint */}
-      <div className="px-5 py-3 border-t border-white/[0.04]">
+      <div className="px-5 py-3 border-t border-white/4">
         <p className="text-[10px] text-[#3f3f46] leading-relaxed">
           Active contacts with email addresses will receive email alerts when SOS is triggered. Indian mobile numbers only.
         </p>
@@ -284,3 +284,4 @@ export default function TrustedContacts() {
     </div>
   )
 }
+

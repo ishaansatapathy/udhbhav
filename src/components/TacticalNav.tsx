@@ -85,7 +85,7 @@ export default function TacticalNav() {
             transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
             className={`fixed top-0 left-0 right-0 z-50 transition-all duration-700 ${scrolled
                 ? "bg-black/70 backdrop-blur-2xl shadow-2xl"
-                : "bg-white/[0.02] backdrop-blur-lg"
+                : "bg-white/2 backdrop-blur-lg"
                 }`}
             style={{
                 borderBottom: scrolled
@@ -146,7 +146,7 @@ export default function TacticalNav() {
                                         ? "text-white active"
                                         : isEmergency
                                             ? "text-red-400/70 hover:text-red-300"
-                                            : "text-white/30 hover:text-white/85 hover:bg-white/[0.04]"
+                                            : "text-white/30 hover:text-white/85 hover:bg-white/4"
                                     }
                   hover:scale-[1.04]
                 `}
@@ -176,3 +176,4 @@ export default function TacticalNav() {
         </motion.header>
     )
 }
+

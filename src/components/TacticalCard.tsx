@@ -41,8 +41,8 @@ export default function TacticalCard({
             {...(animProps as any)}
             className={`
         ${padding} rounded-2xl
-        bg-white/[0.04] backdrop-blur-xl
-        border border-white/[0.08]
+        bg-white/4 backdrop-blur-xl
+        border border-white/8
         shadow-xl
         ${hoverable ? "tactical-card" : ""}
         ${className}
@@ -53,3 +53,4 @@ export default function TacticalCard({
         </Wrapper>
     )
 }
+

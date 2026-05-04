@@ -79,7 +79,7 @@ export default function StatusBadge({
             >
                 {/* Animated dot */}
                 <span
-                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{
                         backgroundColor: config.dot,
                         animation: config.animation,
@@ -90,3 +90,4 @@ export default function StatusBadge({
         </AnimatePresence>
     )
 }
+

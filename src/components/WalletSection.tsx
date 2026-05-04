@@ -281,7 +281,7 @@ export function WalletSection() {
                       accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.zip,.csv" />
                     <motion.div
                       animate={dragOver ? { scale: 1.1 } : { scale: 1 }}
-                      className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
+                      className="shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
                       style={{ background: file ? "rgba(124,58,237,0.2)" : "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
                       {file
                         ? <DocIcon type={detectDocType(file.name)} cls="w-6 h-6 text-[#7C3AED]" />
@@ -303,7 +303,7 @@ export function WalletSection() {
                   </label>
                   {file && !isProcessing && (
                     <button onClick={() => setPreviewFile(p => p ? null : file)}
-                      className="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-[#A1A1AA] hover:text-white transition-colors"
+                      className="shrink-0 w-9 h-9 rounded-lg flex items-center justify-center text-[#A1A1AA] hover:text-white transition-colors"
                       style={{ background: "rgba(255,255,255,0.06)" }}>
                       {previewFile ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -468,7 +468,7 @@ export function WalletSection() {
                       {/* Card header */}
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
                             style={{ background: "rgba(124,58,237,0.18)", border: "1px solid rgba(124,58,237,0.3)" }}>
                             <DocIcon type={p.docType} cls="w-4.5 h-4.5 text-[#7C3AED]" />
                           </div>
@@ -477,7 +477,7 @@ export function WalletSection() {
                             <p className="text-[#A1A1AA] text-[10px]">{p.docType}</p>
                           </div>
                         </div>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full flex-shrink-0"
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0"
                           style={{ color: "#10b981", background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)", boxShadow: "0 0 8px rgba(16,185,129,0.2)" }}>
                           ● Verified
                         </span>
@@ -632,7 +632,7 @@ export function WalletSection() {
                 { n: "4", text: "Present hash as tamper-proof identity proof" },
               ].map(step => (
                 <div key={step.n} className="wallet-step flex items-start gap-2.5" style={{ opacity: 0 }}>
-                  <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-[#7C3AED]"
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-[#7C3AED]"
                     style={{ background: "rgba(124,58,237,0.18)", border: "1px solid rgba(124,58,237,0.3)" }}>
                     {step.n}
                   </div>
@@ -688,3 +688,4 @@ export function WalletSection() {
     </div>
   )
 }
+

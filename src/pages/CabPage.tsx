@@ -258,7 +258,7 @@ function SafetyAnalysisCard({ analysis }: { analysis: PreRideSafetyResult }) {
         <ul className="space-y-1">
           {triggeredWarnings.map((w, i) => (
             <li key={i} className="flex items-center gap-2 text-[11px] text-[#A1A1AA]">
-              <AlertCircle className="w-3 h-3 flex-shrink-0" style={{ color: color.hex }} />
+              <AlertCircle className="w-3 h-3 shrink-0" style={{ color: color.hex }} />
               {w}
             </li>
           ))}
@@ -1605,7 +1605,7 @@ export default function CabPage() {
       />
 
       {/* Premium Tactical Navbar */}
-      <div className="flex-shrink-0 z-[1100]">
+      <div className="shrink-0 z-1100">
         <TacticalNav />
       </div>
 
@@ -1618,7 +1618,7 @@ export default function CabPage() {
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               transition={{ duration: 0.6 }}
-              className="absolute inset-0 z-[1] pointer-events-none"
+              className="absolute inset-0 z-1 pointer-events-none"
               style={{
                 backgroundImage: `
                   linear-gradient(rgba(124,58,237,0.07) 1px, transparent 1px),
@@ -1637,7 +1637,7 @@ export default function CabPage() {
           {!isOnline && relayPhase === "idle" && (
             <motion.div
               initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className={`absolute left-0 right-0 z-[1048] ${deviationAlert ? "top-12" : "top-0"}`}>
+              className={`absolute left-0 right-0 z-1048 ${deviationAlert ? "top-12" : "top-0"}`}>
               <motion.div
                 animate={{ opacity: [0.85, 1, 0.85] }} transition={{ repeat: Infinity, duration: 2.5 }}
                 className="flex items-center justify-center gap-3 px-6 py-2.5 text-sm font-bold text-white"
@@ -1656,7 +1656,7 @@ export default function CabPage() {
         <AnimatePresence>
           {deviationAlert && (
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="absolute top-0 left-0 right-0 z-[1050]">
+              className="absolute top-0 left-0 right-0 z-1050">
               <motion.div animate={{ opacity: [0.9, 1, 0.9] }} transition={{ repeat: Infinity, duration: 1.2 }}
                 className="flex items-center justify-center gap-3 px-6 py-3 text-sm font-bold text-white"
                 style={{ background: "linear-gradient(90deg,#991b1b,#dc2626,#991b1b)", boxShadow: "0 4px 24px rgba(220,38,38,0.6)" }}>
@@ -1674,7 +1674,7 @@ export default function CabPage() {
           {relayPhase !== "idle" && (
             <motion.div
               initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className={`absolute left-0 right-0 z-[1049] ${deviationAlert && !isOnline ? "top-24" : deviationAlert ? "top-12" : !isOnline ? "top-10" : "top-0"}`}>
+              className={`absolute left-0 right-0 z-1049 ${deviationAlert && !isOnline ? "top-24" : deviationAlert ? "top-12" : !isOnline ? "top-10" : "top-0"}`}>
               <motion.div
                 animate={{ opacity: [0.88, 1, 0.88] }} transition={{ repeat: Infinity, duration: 1.6 }}
                 className="flex items-center justify-center gap-3 px-6 py-2.5 text-sm font-bold text-white"
@@ -1694,7 +1694,7 @@ export default function CabPage() {
         <AnimatePresence>
           {transmitStatus === "transmitting" && (
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="absolute top-0 left-0 right-0 z-[1049]">
+              className="absolute top-0 left-0 right-0 z-1049">
               <div className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold text-white"
                 style={{ background: "linear-gradient(90deg,#065f46,#10b981,#065f46)", boxShadow: "0 4px 20px rgba(16,185,129,0.5)" }}>
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1704,7 +1704,7 @@ export default function CabPage() {
           )}
           {transmitStatus === "transmitted" && (
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="absolute top-0 left-0 right-0 z-[1049]">
+              className="absolute top-0 left-0 right-0 z-1049">
               <div className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold text-white"
                 style={{ background: "linear-gradient(90deg,#065f46,#10b981,#065f46)", boxShadow: "0 4px 20px rgba(16,185,129,0.5)" }}>
                 <Wifi className="w-4 h-4" />
@@ -1715,7 +1715,7 @@ export default function CabPage() {
         </AnimatePresence>
 
         {/* Search bar */}
-        <div className={`absolute left-4 right-4 z-[1000] flex gap-2 flex-col sm:flex-row transition-all duration-300 ${deviationAlert ? "top-14" : "top-4"}`}>
+        <div className={`absolute left-4 right-4 z-1000 flex gap-2 flex-col sm:flex-row transition-all duration-300 ${deviationAlert ? "top-14" : "top-4"}`}>
           <div className="relative flex-1">
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -1759,7 +1759,7 @@ export default function CabPage() {
         <AnimatePresence>
           {awaitingDest && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-              className="absolute bottom-36 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 px-5 py-3 rounded-xl bg-[#18181B]/95 backdrop-blur-md border border-[#7C3AED]/50 text-white text-sm font-medium shadow-xl whitespace-nowrap">
+              className="absolute bottom-36 left-1/2 -translate-x-1/2 z-1000 flex items-center gap-2 px-5 py-3 rounded-xl bg-[#18181B]/95 backdrop-blur-md border border-[#7C3AED]/50 text-white text-sm font-medium shadow-xl whitespace-nowrap">
               <MapPin className="w-4 h-4 text-[#7C3AED]" />
               Click anywhere on the map to set your destination
               <button onClick={() => setAwaitingDest(false)} className="ml-2 text-[#A1A1AA] hover:text-white text-xs">✕</button>
@@ -1768,7 +1768,7 @@ export default function CabPage() {
         </AnimatePresence>
 
         {/* Status badges */}
-        <div className={`absolute left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 flex-wrap justify-center transition-all ${deviationAlert ? "top-24" : "top-20"}`}>
+        <div className={`absolute left-1/2 -translate-x-1/2 z-1000 flex items-center gap-2 flex-wrap justify-center transition-all ${deviationAlert ? "top-24" : "top-20"}`}>
           <AnimatePresence mode="wait">
             {isAlert ? (
               <motion.div key="alert" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
@@ -1776,8 +1776,8 @@ export default function CabPage() {
                 <motion.div animate={{ opacity: [0.4, 0.9, 0.4], scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 1.2 }}
                   className="absolute inset-0 rounded-full border border-red-500/40 pointer-events-none" style={{ boxShadow: "0 0 16px rgba(239,68,68,0.4)" }} />
                 <motion.div animate={{ opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 0.8 }}
-                  className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
-                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                  className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 ALERT – Deviation · {formatElapsed(elapsed)}
               </motion.div>
             ) : isActive ? (
@@ -1786,8 +1786,8 @@ export default function CabPage() {
                 <motion.div animate={{ opacity: [0.4, 0.9, 0.4], scale: [1, 1.18, 1] }} transition={{ repeat: Infinity, duration: 2 }}
                   className="absolute inset-0 rounded-full border border-[#7C3AED]/50 pointer-events-none" />
                 <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ repeat: Infinity, duration: 1.4 }}
-                  className="w-2 h-2 rounded-full bg-[#7C3AED] flex-shrink-0" />
-                <Radio className="w-3.5 h-3.5 text-[#7C3AED] flex-shrink-0" />
+                  className="w-2 h-2 rounded-full bg-[#7C3AED] shrink-0" />
+                <Radio className="w-3.5 h-3.5 text-[#7C3AED] shrink-0" />
                 {isPaused ? (
                   <>
                     <motion.span animate={{ opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1 }}
@@ -1801,13 +1801,13 @@ export default function CabPage() {
             ) : isCompleted ? (
               <motion.div key="done" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#18181B]/90 backdrop-blur-md border border-green-500/40 text-green-400 text-xs font-semibold shadow-xl whitespace-nowrap">
-                <div className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                <div className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
                 Trip Completed — {trip?.path.length ?? 0} pts
               </motion.div>
             ) : (
               <motion.div key="none" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] text-xs font-medium shadow-xl whitespace-nowrap">
-                <div className="w-2 h-2 rounded-full bg-[#A1A1AA] flex-shrink-0" />
+                <div className="w-2 h-2 rounded-full bg-[#A1A1AA] shrink-0" />
                 No Active Trip
               </motion.div>
             )}
@@ -1835,15 +1835,15 @@ export default function CabPage() {
                 <motion.div animate={{ opacity: [0.3, 0.7, 0.3], scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 1.8 }}
                   className="absolute inset-0 rounded-full border border-[#2563EB]/40 pointer-events-none" style={{ boxShadow: "0 0 16px rgba(37,99,235,0.35)" }} />
                 <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1 }}
-                  className="w-2 h-2 rounded-full bg-[#2563EB] flex-shrink-0" />
-                <Cpu className="w-3.5 h-3.5 flex-shrink-0" />
+                  className="w-2 h-2 rounded-full bg-[#2563EB] shrink-0" />
+                <Cpu className="w-3.5 h-3.5 shrink-0" />
                 Simulation Active
               </motion.div>
             )}
             {destination && isRunning && fetchingRoute && (
               <motion.div initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#18181B]/90 backdrop-blur-md border border-purple-500/40 text-purple-400 text-xs font-semibold shadow-xl whitespace-nowrap">
-                <Loader2 className="w-3.5 h-3.5 flex-shrink-0 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
                 Fetching road route…
               </motion.div>
             )}
@@ -1855,8 +1855,8 @@ export default function CabPage() {
                   ? "border border-emerald-500/40 text-emerald-400"
                   : "border border-yellow-500/40 text-yellow-400"
                   }`}>
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${routeCoords.length > 0 ? "bg-emerald-400" : "bg-yellow-400"}`} />
-                <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                <div className={`w-2 h-2 rounded-full shrink-0 ${routeCoords.length > 0 ? "bg-emerald-400" : "bg-yellow-400"}`} />
+                <MapPin className="w-3.5 h-3.5 shrink-0" />
                 {routeCoords.length > 0
                   ? `Road Route — ${routeCoords.length} waypoints`
                   : "Corridor Active — straight line"}
@@ -1871,7 +1871,7 @@ export default function CabPage() {
                 <motion.div
                   animate={riskStatus === "CRITICAL" ? { scale: [1, 1.35, 1] } : {}}
                   transition={{ repeat: Infinity, duration: 0.7 }}
-                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  className="w-2 h-2 rounded-full shrink-0"
                   style={{ background: riskColor }}
                 />
                 Risk {Math.round(riskScore)} — {riskStatus}
@@ -1894,15 +1894,15 @@ export default function CabPage() {
                       <motion.div
                         animate={{ opacity: [0.5, 1, 0.5], scale: [1, 1.25, 1] }}
                         transition={{ repeat: Infinity, duration: 0.9 }}
-                        className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
+                        className="w-2 h-2 rounded-full bg-red-500 shrink-0"
                       />
-                      <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                      <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
                       Node {activePoliceNodeId} Engaged – Sector Monitoring
                     </>
                   ) : (
                     <>
-                      <div className="w-2 h-2 rounded-full bg-[#A1A1AA] flex-shrink-0" />
-                      <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                      <div className="w-2 h-2 rounded-full bg-[#A1A1AA] shrink-0" />
+                      <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
                       Awaiting Route
                     </>
                   )}
@@ -1913,11 +1913,11 @@ export default function CabPage() {
         </div>
 
         {/* Right-side controls */}
-        <div className={`absolute right-4 z-[1000] flex flex-col gap-2 transition-all ${deviationAlert ? "top-24" : "top-20"}`}>
+        <div className={`absolute right-4 z-1000 flex flex-col gap-2 transition-all ${deviationAlert ? "top-24" : "top-20"}`}>
           <button onClick={handleToggleSim}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-xl transition-all whitespace-nowrap ${simMode ? "bg-[#2563EB] text-white" : "bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/10"}`}
             style={simMode ? { boxShadow: "0 0 18px rgba(37,99,235,0.45)" } : {}}>
-            <Cpu className="w-4 h-4 flex-shrink-0" />
+            <Cpu className="w-4 h-4 shrink-0" />
             {simMode ? "Simulation ON" : "Enable Simulation"}
           </button>
 
@@ -1938,7 +1938,7 @@ export default function CabPage() {
                   } else { setAwaitingDest(true) }
                 }}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-xl transition-all whitespace-nowrap ${destination ? "bg-[#18181B]/90 backdrop-blur-md border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10" : "bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/10"}`}>
-                <MapPin className="w-4 h-4 flex-shrink-0" />
+                <MapPin className="w-4 h-4 shrink-0" />
                 {destination ? "Clear Destination" : "Set Destination"}
               </motion.button>
             )}
@@ -1949,7 +1949,7 @@ export default function CabPage() {
               <motion.button initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
                 onClick={handleTriggerDeviation}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#18181B]/90 backdrop-blur-md border border-red-500/40 text-red-400 hover:bg-red-500/20 text-sm font-semibold shadow-xl transition-all whitespace-nowrap">
-                <Zap className="w-4 h-4 flex-shrink-0" />
+                <Zap className="w-4 h-4 shrink-0" />
                 Trigger Deviation
               </motion.button>
             )}
@@ -1964,7 +1964,7 @@ export default function CabPage() {
                 : "bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/10"
                 }`}
               style={demoOpen ? { boxShadow: "0 0 18px rgba(124,58,237,0.3)" } : {}}>
-              <Sliders className="w-4 h-4 flex-shrink-0" />
+              <Sliders className="w-4 h-4 shrink-0" />
               {demoOpen ? "Close Demo" : "Demo Controls"}
             </button>
           </div>
@@ -1998,7 +1998,7 @@ export default function CabPage() {
                       onClick={demoSafeRide}
                       className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
                         bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/50">
-                      <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform" />
                       <div>
                         <div className="text-[11px] font-bold">Simulate Safe Ride</div>
                         <div className="text-[9px] text-emerald-600 font-normal">Ramp risk → 0 (SAFE)</div>
@@ -2010,7 +2010,7 @@ export default function CabPage() {
                       onClick={demoMildDeviation}
                       className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
                         bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20 hover:border-yellow-500/50">
-                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform" />
                       <div>
                         <div className="text-[11px] font-bold">Simulate Mild Deviation</div>
                         <div className="text-[9px] text-yellow-600 font-normal">Ramp risk → 45 (WARNING)</div>
@@ -2022,7 +2022,7 @@ export default function CabPage() {
                       onClick={demoCriticalDeviation}
                       className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
                         bg-orange-500/10 border border-orange-500/30 text-orange-400 hover:bg-orange-500/20 hover:border-orange-500/50">
-                      <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <ShieldAlert className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform" />
                       <div>
                         <div className="text-[11px] font-bold">Simulate Critical Deviation</div>
                         <div className="text-[9px] text-orange-600 font-normal">Ramp risk → 82 (near CRITICAL)</div>
@@ -2036,7 +2036,7 @@ export default function CabPage() {
                         bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 hover:border-red-500/50">
                       <motion.div
                         animate={{ scale: [1, 1.15, 1] }} transition={{ repeat: Infinity, duration: 0.9 }}>
-                        <Zap className="w-3.5 h-3.5 flex-shrink-0" />
+                        <Zap className="w-3.5 h-3.5 shrink-0" />
                       </motion.div>
                       <div>
                         <div className="text-[11px] font-bold">Trigger Emergency Instantly</div>
@@ -2054,7 +2054,7 @@ export default function CabPage() {
                       onClick={() => monitorForceAlert("unexpected-stop")}
                       className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
                         bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/20 hover:border-cyan-500/50">
-                      <Car className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <Car className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform" />
                       <div>
                         <div className="text-[11px] font-bold">Simulate Unexpected Stop</div>
                         <div className="text-[9px] text-cyan-600 font-normal">Shows 15s countdown modal</div>
@@ -2066,7 +2066,7 @@ export default function CabPage() {
                       onClick={() => monitorForceAlert("route-deviation")}
                       className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
                         bg-pink-500/10 border border-pink-500/30 text-pink-400 hover:bg-pink-500/20 hover:border-pink-500/50">
-                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform" />
                       <div>
                         <div className="text-[11px] font-bold">Simulate Route Deviation</div>
                         <div className="text-[9px] text-pink-600 font-normal">Shows 15s countdown modal</div>
@@ -2082,9 +2082,9 @@ export default function CabPage() {
                         }`}>
                       {demoOffline
                         ? <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1.2 }}>
-                          <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
+                          <WifiOff className="w-3.5 h-3.5 shrink-0" />
                         </motion.div>
-                        : <Wifi className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                        : <Wifi className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform" />
                       }
                       <div>
                         <div className="text-[11px] font-bold">{demoOffline ? "Restore Network" : "Toggle Offline Mode"}</div>
@@ -2105,8 +2105,8 @@ export default function CabPage() {
         <AnimatePresence>
           {error && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="absolute bottom-32 left-4 right-4 z-[1000] flex items-center gap-3 p-4 rounded-xl bg-red-500/20 backdrop-blur-md border border-red-500/30 text-red-400 shadow-xl">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+              className="absolute bottom-32 left-4 right-4 z-1000 flex items-center gap-3 p-4 rounded-xl bg-red-500/20 backdrop-blur-md border border-red-500/30 text-red-400 shadow-xl">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
               <p className="text-sm flex-1">{error}</p>
               <button onClick={() => setError(null)} className="text-red-400 hover:text-white text-xs">✕</button>
             </motion.div>
@@ -2118,7 +2118,7 @@ export default function CabPage() {
           {relayPhase !== "idle" && (
             <motion.div
               initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-              className="absolute bottom-32 left-4 z-[1000] w-56 rounded-xl overflow-hidden shadow-2xl"
+              className="absolute bottom-32 left-4 z-1000 w-56 rounded-xl overflow-hidden shadow-2xl"
               style={{ border: "1px solid rgba(59,130,246,0.4)", background: "rgba(15,23,42,0.92)", backdropFilter: "blur(12px)" }}>
               <div className="px-4 py-2.5 flex items-center gap-2 border-b border-blue-500/20"
                 style={{ background: "linear-gradient(90deg,rgba(37,99,235,0.2),transparent)" }}>
@@ -2154,7 +2154,7 @@ export default function CabPage() {
                     {relayNodes.map(n => (
                       <div key={n.id} className="flex items-center gap-1.5 mt-1">
                         <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1.5, delay: Math.random() }}
-                          className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
+                          className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
                         <span className="text-blue-400 font-mono text-[10px]">{n.id}</span>
                       </div>
                     ))}
@@ -2180,7 +2180,7 @@ export default function CabPage() {
           {isRunning && (
             <motion.div
               initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-              className="absolute bottom-52 right-4 z-[1000] w-48 rounded-2xl overflow-hidden shadow-2xl"
+              className="absolute bottom-52 right-4 z-1000 w-48 rounded-2xl overflow-hidden shadow-2xl"
               style={{ background: "rgba(18,18,22,0.92)", backdropFilter: "blur(14px)", border: `1px solid ${riskColor}40` }}>
               {/* Header */}
               <div className="flex items-center justify-between px-4 pt-3 pb-1">
@@ -2246,7 +2246,7 @@ export default function CabPage() {
         <AnimatePresence>
           {trip && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="absolute bottom-24 left-4 z-[1000] px-3 py-1.5 rounded-lg bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] text-xs font-mono shadow-xl">
+              className="absolute bottom-24 left-4 z-1000 px-3 py-1.5 rounded-lg bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] text-xs font-mono shadow-xl">
               {trip.tripId} · {trip.path.length} pts
             </motion.div>
           )}
@@ -2257,7 +2257,7 @@ export default function CabPage() {
           {isRunning && (
             <motion.div
               initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3">
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-1000 flex items-center gap-3">
 
               {/* Pause / Continue */}
               <button
@@ -2303,7 +2303,7 @@ export default function CabPage() {
               key={bookingStep}
               initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 28, stiffness: 260 }}
-              className="absolute bottom-0 left-0 right-0 z-[1010] rounded-t-3xl overflow-hidden"
+              className="absolute bottom-0 left-0 right-0 z-1010 rounded-t-3xl overflow-hidden"
               style={{ background: "rgba(10,10,15,0.97)", backdropFilter: "blur(24px)", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
 
               {/* Drag handle */}
@@ -2443,11 +2443,11 @@ export default function CabPage() {
 
                             <div className="mt-2 flex flex-col gap-1">
                               <div className="flex items-center gap-1 text-[#A1A1AA] text-[10px]">
-                                <Clock className="w-2.5 h-2.5 flex-shrink-0" />
+                                <Clock className="w-2.5 h-2.5 shrink-0" />
                                 {v.eta} min ETA
                               </div>
                               <div className="flex items-center gap-1 text-[10px]">
-                                <Shield className="w-2.5 h-2.5 flex-shrink-0 text-emerald-400" />
+                                <Shield className="w-2.5 h-2.5 shrink-0 text-emerald-400" />
                                 <span className="text-emerald-400">{v.safetyScore}% safe</span>
                               </div>
                               <div className="text-[9px] text-[#52525B] truncate">{v.model}</div>
@@ -2461,7 +2461,7 @@ export default function CabPage() {
                         <div className="px-4 pt-2">
                           <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] text-[#A1A1AA]"
                             style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
-                            <MapPin className="w-3 h-3 text-[#7C3AED] flex-shrink-0" />
+                            <MapPin className="w-3 h-3 text-[#7C3AED] shrink-0" />
                             <span><b className="text-white">{routeDistanceKm.toFixed(1)} km</b> · ~{Math.round(routeDurationMin)} min · fares based on road route</span>
                           </div>
                         </div>
@@ -2569,21 +2569,21 @@ export default function CabPage() {
                   <div className="flex items-center gap-3 p-3.5 rounded-2xl mb-3"
                     style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}>
                     {/* Avatar */}
-                    <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base flex-shrink-0"
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-base shrink-0"
                       style={{ background: "linear-gradient(135deg,#7C3AED,#2563EB)" }}>
                       {driverDetails.initials}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-white font-bold text-sm">{driverDetails.name}</div>
                       <div className="flex items-center gap-1 mt-0.5">
-                        <Star className="w-3 h-3 text-yellow-400 fill-yellow-400 flex-shrink-0" />
+                        <Star className="w-3 h-3 text-yellow-400 fill-yellow-400 shrink-0" />
                         <span className="text-yellow-400 text-xs font-semibold">{driverDetails.rating}</span>
                         <span className="text-[#52525B] text-xs">·</span>
                         <span className="text-[#A1A1AA] text-xs truncate">{driverDetails.vehicleNumber}</span>
                       </div>
                       <div className="text-[#52525B] text-[10px] mt-0.5 truncate">{driverDetails.model}</div>
                     </div>
-                    <div className="flex-shrink-0">
+                    <div className="shrink-0">
                       {selectedVehicle?.img
                         ? <img
                           src={selectedVehicle.img} alt={selectedVehicle.name}
@@ -2609,8 +2609,8 @@ export default function CabPage() {
                   <div className="flex items-center gap-2 p-3 rounded-xl mb-4"
                     style={{ background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.25)" }}>
                     <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1.5 }}
-                      className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-                    <Clock className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+                      className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                    <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                     <span className="text-emerald-400 text-xs font-semibold">
                       Arriving in {selectedVehicle?.eta} min · ₹{selectedVehicle?.fare}
                     </span>
@@ -2641,3 +2641,4 @@ export default function CabPage() {
     </div >
   )
 }
+

@@ -451,7 +451,7 @@ export default function PoliceDashboard() {
       <TacticalNav />
 
       <div className="flex h-[calc(100vh-52px)]" style={{ marginTop: 52 }}>
-        <div className="w-72 bg-[#0a0f0a] border-r border-green-800 p-3 overflow-y-auto space-y-3 flex-shrink-0">
+        <div className="w-72 bg-[#0a0f0a] border-r border-green-800 p-3 overflow-y-auto space-y-3 shrink-0">
           <div className="border border-green-700 rounded p-3">
             <p className="text-green-500 text-xs font-bold tracking-widest mb-2">▸ COMMAND STATION</p>
             <select
@@ -762,12 +762,12 @@ export default function PoliceDashboard() {
 
         <div className="flex-1 relative">
           <div ref={mapContainerRef} className="w-full h-full" />
-          <div className="absolute top-3 right-3 bg-black/80 border border-green-700 rounded p-2 text-green-400 text-xs z-[999] space-y-0.5">
+          <div className="absolute top-3 right-3 bg-black/80 border border-green-700 rounded p-2 text-green-400 text-xs z-999 space-y-0.5">
             <div>GRID  <span className="text-green-300">ACTIVE</span></div>
             <div>RANGE <span className="text-green-300">2 KM</span></div>
             <div>MODE  <span className="text-green-300">TACTICAL</span></div>
           </div>
-          <div className="absolute bottom-3 right-3 bg-black/80 border border-green-700 rounded p-2 text-[10px] z-[999] space-y-1">
+          <div className="absolute bottom-3 right-3 bg-black/80 border border-green-700 rounded p-2 text-[10px] z-999 space-y-1">
             <div className="flex items-center gap-2">
               <span className="inline-block w-3 h-3 rounded-full bg-green-400 border border-white" />
               <span>Police Station</span>
@@ -811,3 +811,4 @@ export default function PoliceDashboard() {
     </div>
   )
 }
+

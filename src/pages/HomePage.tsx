@@ -492,7 +492,7 @@ export default function HomePage() {
               ].map(({ icon: Icon, text }, i) => (
                 <div key={i} className="anim-card flex items-center gap-2.5 justify-center py-4 px-3 rounded-xl"
                   style={{ opacity: 0, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
-                  <Icon className="w-4 h-4 text-[#10b981] flex-shrink-0" />
+                  <Icon className="w-4 h-4 text-[#10b981] shrink-0" />
                   <span className="text-white/50 text-xs font-medium">{text}</span>
                 </div>
               ))}
@@ -513,3 +513,4 @@ export default function HomePage() {
     </div>
   )
 }
+
