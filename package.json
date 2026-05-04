@@ -4,10 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "node server/index.js",
+    "dev": "vite",
     "build": "vite build",
+    "preview": "vite preview",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "server": "node server/index.js",
+    "server": "node server/server.js",
+    "server:index": "node server/index.js",
     "scrape": "cd scripts && python scrape_police_stations.py"
   },
   "keywords": [],
