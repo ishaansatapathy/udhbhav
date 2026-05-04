@@ -9,6 +9,12 @@ import { verifyPayload } from "../lib/crypto"
 import { ShieldCheck, ShieldX, ShieldAlert, FileText, Car, Siren } from "lucide-react"
 import TacticalNav from "../components/TacticalNav"
 import { API_BASE } from "../lib/config"
+import RiskHeatmap from "../components/RiskHeatmap"
+import RiskScorePanel from "../components/RiskScorePanel"
+import IncidentExplanation from "../components/IncidentExplanation"
+import { useRiskScore } from "../lib/useRiskScore"
+import { getZoneAtPoint } from "../lib/riskZones"
+import { generateIncidentText } from "../lib/generateIncidentText"
 
 const INITIAL_CENTER: [number, number] = [12.9716, 77.5946]
 const INITIAL_ZOOM = 11
@@ -62,6 +68,13 @@ export default function PoliceDashboard() {
     event_id: string; user_id: string; lat: number; lng: number;
     level: string; status: string; timestamp: number; category?: string;
   }>>([])
+
+  // ── Risk Heatmap + Score + Incident Text state ──
+  const [showRiskZones, setShowRiskZones] = useState(false)
+  const { riskScore, riskColor, riskLabel, applyEvent, reset: resetRiskScore } = useRiskScore()
+  const [zoneAlert, setZoneAlert] = useState<string | null>(null)
+  const [incidentFlags, setIncidentFlags] = useState({ deviation: false, stopped: false, zone: null as "HIGH" | "MEDIUM" | "LOW" | null, nightTime: false })
+  const zoneAlertTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const id = setInterval(() => setClockStr(new Date().toLocaleString()), 1000)
@@ -343,6 +356,30 @@ export default function PoliceDashboard() {
         iconAnchor: [22, 22],
       })
       L.marker([cab.lat, cab.lon], { icon, pane: "cabs" }).addTo(cabLayerRef.current)
+
+      // ── Risk zone entry detection ──
+      const zone = getZoneAtPoint(cab.lat, cab.lon)
+      if (zone && zone.type === "HIGH") {
+        applyEvent("HIGH_RISK_ZONE")
+        setIncidentFlags(prev => ({ ...prev, zone: "HIGH" }))
+        setZoneAlert(`Entering High Risk Zone — ${zone.label}`)
+        if (zoneAlertTimeoutRef.current) clearTimeout(zoneAlertTimeoutRef.current)
+        zoneAlertTimeoutRef.current = setTimeout(() => setZoneAlert(null), 10000)
+      } else if (zone && zone.type === "MEDIUM") {
+        setIncidentFlags(prev => ({ ...prev, zone: "MEDIUM" }))
+      }
+
+      // Deviation check (from existing risk score)
+      if (risk >= 70) {
+        applyEvent("DEVIATION")
+        setIncidentFlags(prev => ({ ...prev, deviation: true }))
+      }
+
+      // Stop detection (cab not moving and has alert)
+      if (isAlert && cab.distressTriggers?.includes("STATIONARY")) {
+        applyEvent("STOP")
+        setIncidentFlags(prev => ({ ...prev, stopped: true }))
+      }
     })
   }, [cabs, alertCabs])
 
@@ -513,6 +550,16 @@ export default function PoliceDashboard() {
           >
             {isScanning ? "DISABLE SCAN" : "ENABLE SCAN"}
           </button>
+
+          <button
+            onClick={() => setShowRiskZones(v => !v)}
+            className={`w-full py-2 text-xs font-bold rounded border transition-colors ${showRiskZones ? "bg-red-700 hover:bg-red-600 border-red-500 text-white" : "bg-transparent hover:bg-red-900/30 border-red-800 text-red-400"
+              }`}
+          >
+            {showRiskZones ? "RISK ZONES ON ●" : "SHOW RISK ZONES"}
+          </button>
+
+          <RiskScorePanel score={riskScore} color={riskColor} label={riskLabel} onReset={resetRiskScore} />
 
           <div className="border border-green-700 rounded p-3">
             <p className="text-green-500 text-xs font-bold tracking-widest mb-2">▸ ACTIVE UNITS</p>
@@ -687,6 +734,12 @@ export default function PoliceDashboard() {
             </div>
           </div>
 
+          {/* ── AI Incident Analysis ── */}
+          <IncidentExplanation
+            text={generateIncidentText(incidentFlags)}
+            zoneAlert={zoneAlert}
+          />
+
           {/* ── Suspicious Activity Panel ── */}
           <div className="border border-orange-800 rounded p-3">
             <p className="text-orange-400 text-xs font-bold tracking-widest mb-2 flex items-center gap-1.5">
@@ -761,10 +814,12 @@ export default function PoliceDashboard() {
 
         <div className="flex-1 relative">
           <div ref={mapContainerRef} className="w-full h-full" />
+          <RiskHeatmap map={mapRef.current} visible={showRiskZones} />
           <div className="absolute top-3 right-3 bg-black/80 border border-green-700 rounded p-2 text-green-400 text-xs z-999 space-y-0.5">
             <div>GRID  <span className="text-green-300">ACTIVE</span></div>
             <div>RANGE <span className="text-green-300">2 KM</span></div>
             <div>MODE  <span className="text-green-300">TACTICAL</span></div>
+            <div>ZONES <span className={showRiskZones ? "text-red-400" : "text-green-300"}>{showRiskZones ? "VISIBLE" : "HIDDEN"}</span></div>
           </div>
           <div className="absolute bottom-3 right-3 bg-black/80 border border-green-700 rounded p-2 text-[10px] z-999 space-y-1">
             <div className="flex items-center gap-2">
@@ -787,6 +842,20 @@ export default function PoliceDashboard() {
               <span className="text-lg leading-3">🚗</span>
               <span className="text-orange-400">Suspicious Activity</span>
             </div>
+            {showRiskZones && (<>
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 rounded-sm bg-red-500/40 border border-red-500" />
+                <span className="text-red-400">High Risk Zone</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 rounded-sm bg-orange-500/40 border border-orange-500" />
+                <span className="text-orange-400">Medium Risk Zone</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 rounded-sm bg-green-500/40 border border-green-500" />
+                <span className="text-green-400">Low Risk Zone</span>
+              </div>
+            </>)}
           </div>
         </div>
       </div>
@@ -794,6 +863,7 @@ export default function PoliceDashboard() {
       <style>{`
         .ps-tooltip { background: rgba(0,0,0,0.85) !important; border: 1px solid #00ff00 !important; color: #00ff00 !important; font-family: monospace !important; font-size: 11px !important; padding: 3px 7px !important; }
         .alert-tooltip { background: rgba(0,0,0,0.85) !important; border: 1px solid #ff0000 !important; color: #ff4444 !important; font-family: monospace !important; font-size: 11px !important; }
+        .risk-zone-tooltip { background: rgba(0,0,0,0.9) !important; border: 1px solid #ff8800 !important; color: #fff !important; font-family: monospace !important; font-size: 11px !important; padding: 4px 8px !important; }
         .custom-cab-marker { background: transparent !important; border: none !important; }
         .cab-marker-wrap { text-align: center; color: var(--cab-color, #00ff00); font-family: monospace; font-weight: bold; }
         .cab-icon { font-size: 18px; margin-bottom: 1px; }

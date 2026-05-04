@@ -17,7 +17,9 @@ import { useFleetSimulation } from "../lib/useFleetSimulation"
 import { useRideMonitor } from "../lib/useRideMonitor"
 import FleetPanel from "../components/FleetPanel"
 import SafetyAlertModal from "../components/SafetyAlertModal"
+import SmartAlertModal from "../components/SmartAlertModal"
 import TacticalNav from "../components/TacticalNav"
+import { useSmartAlert } from "../lib/useSmartAlert"
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -854,6 +856,16 @@ export default function CabPage() {
     return () => clearTimeout(id)
   }, [deviationAlert])
 
+  // ── Smart Alert system ────────────────────────────────────────────────────
+  const { alertState: smartAlertState, triggerAlert: triggerSmartAlert, dismiss: dismissSmartAlert, escalate: escalateSmartAlert, MESSAGES: SMART_ALERT_MESSAGES } = useSmartAlert()
+
+  // Bridge: deviation detected → Smart Alert
+  useEffect(() => {
+    if (deviationAlert) {
+      triggerSmartAlert("DEVIATION")
+    }
+  }, [deviationAlert, triggerSmartAlert])
+
   useEffect(() => {
     const container = mapInstanceRef.current?.getContainer()
     if (!container) return
@@ -1594,6 +1606,17 @@ export default function CabPage() {
 
   return (
     <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: "linear-gradient(135deg, #030305 0%, #0a0a12 50%, #000000 100%)" }}>
+
+      {/* ── Smart Alert Modal (proactive — fires before SOS) ── */}
+      <SmartAlertModal
+        alertState={smartAlertState}
+        messages={SMART_ALERT_MESSAGES}
+        onSafe={() => dismissSmartAlert()}
+        onHelp={() => {
+          escalateSmartAlert()
+          handleMonitorSOS()
+        }}
+      />
 
       {/* ── Safety Alert Modal (ride monitor) ── */}
       <SafetyAlertModal

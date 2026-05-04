@@ -2,11 +2,13 @@
  * LiveResponseSimulation — real-time responder approach visualization.
  *
  * Shows a dark mini-map with:
- *  • User marker (red pulse)
+ *  • User marker (red pulse, enhanced CSS animation)
  *  • Responder marker (blue → green on arrival)
- *  • Animated movement every 2s toward user
- *  • Distance + ETA display
+ *  • Animated movement every 1.5s toward user along OSRM route
+ *  • Shrinking polyline as responder advances
+ *  • Distance + ETA display in header
  *  • "Responder Arrived" final state
+ *  • onPositionUpdate callback to sync external SOS state machine
  *
  * Purely frontend simulation — no backend socket/API calls.
  */
@@ -24,6 +26,10 @@ interface Props {
     userLng: number
     active: boolean          // start simulation when true
     responderName?: string
+    responderLat?: number    // optional: use predetermined spawn point
+    responderLng?: number
+    /** Called on each animation tick with current position + arrived flag */
+    onPositionUpdate?: (lat: number, lng: number, arrived: boolean) => void
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -40,7 +46,7 @@ function haversineM(lat1: number, lng1: number, lat2: number, lng2: number) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-/** Random offset ~1.2km in a compass direction */
+/** Random offset ~1.2 km in a compass direction */
 function randomOffset() {
     const angle = Math.random() * Math.PI * 2
     const dist = 0.010 + Math.random() * 0.002 // ~1.1–1.3 km in degrees
@@ -54,11 +60,15 @@ export default function LiveResponseSimulation({
     userLng,
     active,
     responderName = "Arjun Kumar",
+    responderLat,
+    responderLng,
+    onPositionUpdate,
 }: Props) {
     const mapContainerRef = useRef<HTMLDivElement>(null)
     const mapRef = useRef<L.Map | null>(null)
     const userMarkerRef = useRef<L.CircleMarker | null>(null)
     const userPulseRef = useRef<L.CircleMarker | null>(null)
+    const userPulse2Ref = useRef<L.CircleMarker | null>(null)
     const responderMarkerRef = useRef<L.Marker | null>(null)
     const pathLineRef = useRef<L.Polyline | null>(null)
     const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -96,7 +106,17 @@ export default function LiveResponseSimulation({
 
         mapRef.current = map
 
-        // User pulse
+        // User pulse ring 1 (slow outer)
+        userPulse2Ref.current = L.circleMarker([userLat, userLng], {
+            radius: 26,
+            color: "#ef4444",
+            fillColor: "#ef4444",
+            fillOpacity: 0.06,
+            weight: 1,
+            className: "user-pulse-ring-slow",
+        }).addTo(map)
+
+        // User pulse ring 2 (fast inner)
         userPulseRef.current = L.circleMarker([userLat, userLng], {
             radius: 18,
             color: "#ef4444",
@@ -137,10 +157,9 @@ export default function LiveResponseSimulation({
 
         setArrived(false)
 
-        // Spawn responder ~1.2km away
-        const off = randomOffset()
-        const rLat = userLat + off.dLat
-        const rLng = userLng + off.dLng
+        // Spawn responder — use provided coords or random
+        const rLat = responderLat !== undefined ? responderLat : userLat + randomOffset().dLat
+        const rLng = responderLng !== undefined ? responderLng : userLng + randomOffset().dLng
         setResponderPos({ lat: rLat, lng: rLng })
 
         // Fetch OSRM walking route (responder → user)
@@ -188,21 +207,24 @@ export default function LiveResponseSimulation({
         setDistanceM(Math.round(totalDist))
         setEtaSec(Math.round(totalDist / 4.5))
 
-        // Responder icon
-        const respIcon = L.divIcon({
-            html: `<div style="
-        width:28px; height:28px; border-radius:50%;
-        background:radial-gradient(circle at 40% 40%, #3b82f6, #1d4ed8);
-        border:2px solid #fff; display:flex; align-items:center; justify-content:center;
-        box-shadow: 0 0 12px rgba(59,130,246,0.5);
-        font-size:14px; color:#fff;
-      ">🚶</div>`,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14],
-            className: "",
-        })
+        // Responder icon (blue, moving)
+        const makeResponderIcon = (emoji: string, color1: string, color2: string, glow: string) =>
+            L.divIcon({
+                html: `<div style="
+          width:28px; height:28px; border-radius:50%;
+          background:radial-gradient(circle at 40% 40%, ${color1}, ${color2});
+          border:2px solid #fff; display:flex; align-items:center; justify-content:center;
+          box-shadow: 0 0 12px ${glow};
+          font-size:14px; color:#fff;
+        ">${emoji}</div>`,
+                iconSize: [28, 28],
+                iconAnchor: [14, 14],
+                className: "",
+            })
 
-        responderMarkerRef.current = L.marker([rLat, rLng], { icon: respIcon })
+        responderMarkerRef.current = L.marker([rLat, rLng], {
+            icon: makeResponderIcon("🚶", "#3b82f6", "#1d4ed8", "rgba(59,130,246,0.5)"),
+        })
             .addTo(mapRef.current)
             .bindTooltip(responderName, { permanent: true, direction: "top", offset: [0, -16], className: "response-tooltip" })
 
@@ -217,7 +239,7 @@ export default function LiveResponseSimulation({
         // Fit bounds to route
         mapRef.current.fitBounds(L.latLngBounds(routeCoords.map(c => L.latLng(c[0], c[1]))), { padding: [40, 40], maxZoom: 15 })
 
-        // Animate along waypoints
+        // ── Animate along waypoints ────────────────────────────────────────────
         const state = { idx: 0 }
         tickRef.current = setInterval(() => {
             state.idx++
@@ -230,22 +252,15 @@ export default function LiveResponseSimulation({
                 setEtaSec(0)
                 setResponderPos({ lat: userLat, lng: userLng })
 
-                // Change icon to green
+                // Notify parent
+                onPositionUpdate?.(userLat, userLng, true)
+
+                // Change icon to green arrived
                 if (responderMarkerRef.current && mapRef.current) {
                     mapRef.current.removeLayer(responderMarkerRef.current)
-                    const arrivedIcon = L.divIcon({
-                        html: `<div style="
-              width:28px; height:28px; border-radius:50%;
-              background:radial-gradient(circle at 40% 40%, #22c55e, #15803d);
-              border:2px solid #fff; display:flex; align-items:center; justify-content:center;
-              box-shadow: 0 0 16px rgba(34,197,94,0.6);
-              font-size:14px; color:#fff;
-            ">✓</div>`,
-                        iconSize: [28, 28],
-                        iconAnchor: [14, 14],
-                        className: "",
+                    responderMarkerRef.current = L.marker([userLat, userLng], {
+                        icon: makeResponderIcon("✓", "#22c55e", "#15803d", "rgba(34,197,94,0.6)"),
                     })
-                    responderMarkerRef.current = L.marker([userLat, userLng], { icon: arrivedIcon })
                         .addTo(mapRef.current)
                         .bindTooltip(`${responderName} — Arrived`, { permanent: true, direction: "top", offset: [0, -16], className: "response-tooltip" })
                 }
@@ -258,25 +273,28 @@ export default function LiveResponseSimulation({
 
             const [lat, lng] = animCoords[state.idx]
 
-            // Move marker
+            // Move marker smoothly
             if (responderMarkerRef.current) {
                 responderMarkerRef.current.setLatLng([lat, lng])
             }
 
             // Shrink route line to remaining path
             if (pathLineRef.current) {
-                // Show only remaining waypoints from current to end
                 const remaining = animCoords.slice(state.idx)
                 pathLineRef.current.setLatLngs(remaining)
             }
 
             // Update distance from current pos to user
             const remDist = haversineM(lat, lng, userLat, userLng)
+            const remEta = Math.round(remDist / 4.5)
             setDistanceM(Math.round(remDist))
-            setEtaSec(Math.round(remDist / 4.5))
+            setEtaSec(remEta)
             setResponderPos({ lat, lng })
+
+            // Notify parent SOS state machine
+            onPositionUpdate?.(lat, lng, false)
         }, 1500)
-    }, [userLat, userLng, responderName])
+    }, [userLat, userLng, responderName, responderLat, responderLng, onPositionUpdate])
 
     useEffect(() => {
         if (active) startSim()
@@ -296,13 +314,19 @@ export default function LiveResponseSimulation({
         }
     }, [active, startSim])
 
-    // ── Pulse animation via CSS ───────────────────────────────────────────────
+    // ── Pulse animation (CSS-driven) ──────────────────────────────────────────
 
     useEffect(() => {
-        if (!userPulseRef.current) return
-        const el = userPulseRef.current.getElement() as HTMLElement | null
-        if (!el) return
-        el.style.animation = "pulseRing 2s ease-out infinite"
+        // Attach animation to pulse rings once they exist
+        const applyPulse = (el: HTMLElement | null, anim: string) => {
+            if (el) el.style.animation = anim
+        }
+        if (userPulseRef.current) {
+            applyPulse(userPulseRef.current.getElement() as HTMLElement | null, "pulseRing 1.6s ease-out infinite")
+        }
+        if (userPulse2Ref.current) {
+            applyPulse(userPulse2Ref.current.getElement() as HTMLElement | null, "pulseRing 2.4s ease-out infinite 0.4s")
+        }
     }, [active])
 
     // Format ETA
@@ -316,11 +340,12 @@ export default function LiveResponseSimulation({
             {/* Inject pulse animation + tooltip style */}
             <style>{`
         @keyframes pulseRing {
-          0%   { transform: scale(1);   opacity: 0.6; }
-          70%  { transform: scale(1.6); opacity: 0; }
-          100% { transform: scale(1.6); opacity: 0; }
+          0%   { transform: scale(1);   opacity: 0.7; }
+          70%  { transform: scale(1.7); opacity: 0; }
+          100% { transform: scale(1.7); opacity: 0; }
         }
-        .user-pulse-ring { animation: pulseRing 2s ease-out infinite; }
+        .user-pulse-ring       { animation: pulseRing 1.6s ease-out infinite; }
+        .user-pulse-ring-slow  { animation: pulseRing 2.4s ease-out infinite 0.4s; }
         .response-tooltip {
           background: rgba(24,24,27,0.9) !important;
           border: 1px solid rgba(255,255,255,0.1) !important;
