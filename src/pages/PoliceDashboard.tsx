@@ -8,11 +8,10 @@ import type { PoliceStation, CabState } from "../lib/geo"
 import { verifyPayload } from "../lib/crypto"
 import { ShieldCheck, ShieldX, ShieldAlert, FileText, Car, Siren } from "lucide-react"
 import TacticalNav from "../components/TacticalNav"
+import { API_BASE } from "../lib/config"
 
 const INITIAL_CENTER: [number, number] = [12.9716, 77.5946]
 const INITIAL_ZOOM = 11
-
-const API_BASE = import.meta.env.VITE_SERVER_URL || "http://localhost:4000"
 
 type VerifyStatus = "pending" | "verified" | "invalid" | "unsigned" | null
 

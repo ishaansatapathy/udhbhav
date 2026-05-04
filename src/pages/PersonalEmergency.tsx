@@ -18,7 +18,7 @@ import {
     triggerSOSShockwave,
 } from "../lib/useAnimeAnimations"
 
-const API_BASE = import.meta.env.VITE_SERVER_URL || "http://localhost:4000"
+import { API_BASE } from "../lib/config"
 
 const CATEGORIES = [
     { value: "PERSONAL_THREAT", label: "Personal Threat", icon: "🛡️" },

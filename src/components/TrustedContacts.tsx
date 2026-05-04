@@ -8,8 +8,9 @@ import {
   UserPlus, Phone, Trash2, ToggleLeft, ToggleRight,
   Shield, Loader2, AlertCircle, CheckCircle2, Users, Mail,
 } from "lucide-react"
+import { API_BASE } from "../lib/config"
 
-const API = "http://localhost:4000/api/contacts"
+const API = `${API_BASE}/api/contacts`
 
 interface Contact {
   id: number

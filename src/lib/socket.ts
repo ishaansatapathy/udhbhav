@@ -1,7 +1,7 @@
 import { io, Socket } from "socket.io-client"
 import type { CabState, TraceChainEntry, SilentAlert } from "./geo"
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000"
+import { SERVER_URL } from "./config"
 
 let socket: Socket | null = null
 let refCount = 0
@@ -9,7 +9,7 @@ let refCount = 0
 export function getSocket(): Socket {
   if (!socket) {
     socket = io(SERVER_URL, {
-      transports:           ["websocket"],   // skip long-polling — connect immediately
+      transports:           ["websocket", "polling"],   // skip long-polling — connect immediately
       autoConnect:          true,
       reconnectionAttempts: 10,
       reconnectionDelay:    1500,
