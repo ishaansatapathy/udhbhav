@@ -1,0 +1,17 @@
+{
+  "name": "saarthi-backend",
+  "version": "1.0.0",
+  "description": "Saarthi Socket.io + Express backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "socket.io": "^4.8.3"
+  }
+}
