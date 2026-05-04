@@ -111,7 +111,7 @@ export default function TacticalNav() {
                 }}
             />
 
-            <div className="px-6 md:px-12 py-3.5 flex items-center justify-between max-w-[1440px] mx-auto">
+            <div className="px-6 md:px-12 py-3.5 flex items-center justify-between max-w-360 mx-auto">
                 {/* Brand */}
                 <Link to="/" className="flex items-center gap-2 group">
                     <div ref={brandRef} className="flex items-center gap-2.5">

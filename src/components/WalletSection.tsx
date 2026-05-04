@@ -473,7 +473,7 @@ export function WalletSection() {
                             <DocIcon type={p.docType} cls="w-4.5 h-4.5 text-[#7C3AED]" />
                           </div>
                           <div className="min-w-0">
-                            <p className="text-white text-sm font-semibold truncate max-w-[120px]">{p.fileName}</p>
+                            <p className="text-white text-sm font-semibold truncate max-w-30">{p.fileName}</p>
                             <p className="text-[#A1A1AA] text-[10px]">{p.docType}</p>
                           </div>
                         </div>

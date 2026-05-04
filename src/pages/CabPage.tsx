@@ -1727,7 +1727,7 @@ export default function CabPage() {
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-white text-sm placeholder:text-[#A1A1AA]/60 focus:outline-none focus:border-[#7C3AED] shadow-xl" />
               </div>
               <button onClick={() => handleSearch(searchQuery)} disabled={searching}
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#2563EB] text-white text-sm font-semibold hover:shadow-[0_0_16px_rgba(124,58,237,0.4)] transition-all disabled:opacity-60 shadow-xl">
+                className="px-4 py-2.5 rounded-xl bg-linear-to-r from-[#7C3AED] to-[#2563EB] text-white text-sm font-semibold hover:shadow-[0_0_16px_rgba(124,58,237,0.4)] transition-all disabled:opacity-60 shadow-xl">
                 {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : "Go"}
               </button>
             </div>

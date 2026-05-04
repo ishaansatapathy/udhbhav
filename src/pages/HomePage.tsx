@@ -189,7 +189,7 @@ export default function HomePage() {
         <div ref={heroRef} className="absolute inset-0 flex items-center" style={{ zIndex: 50 }}>
           <div className="w-full max-w-7xl mx-auto px-8 md:px-16">
             <div
-              className="max-w-[620px] select-none"
+              className="max-w-155 select-none"
               style={{ transform: `translateY(${scrollY * 0.08}px)` }}>
 
               {/* Status badge — anime.js: .hero-badge */}
@@ -367,7 +367,7 @@ export default function HomePage() {
         {/* Problem section */}
         <section className="anim-section px-8 py-32 max-w-6xl mx-auto relative">
           <div className="flex items-center gap-3 mb-5">
-            <div className="w-8 h-px bg-gradient-to-r from-[#8b5cf6] to-transparent" />
+            <div className="w-8 h-px bg-linear-to-r from-[#8b5cf6] to-transparent" />
             <span className="anim-heading text-[#8b5cf6] text-[10px] font-bold tracking-[0.3em] uppercase" style={{ opacity: 0 }}>The Problem</span>
           </div>
           <h2 className="anim-heading text-4xl md:text-5xl font-bold text-white mb-5 leading-tight" style={{ opacity: 0 }}>
@@ -432,7 +432,7 @@ export default function HomePage() {
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-20">
               <div className="inline-flex items-center gap-3 mb-5">
-                <div className="w-8 h-px bg-gradient-to-r from-transparent to-[#8b5cf6]" />
+                <div className="w-8 h-px bg-linear-to-r from-transparent to-[#8b5cf6]" />
                 <span className="anim-heading text-[#8b5cf6] text-[10px] font-bold tracking-[0.3em] uppercase" style={{ opacity: 0 }}>Our Solution</span>
                 <div className="w-8 h-px bg-gradient-to-l from-transparent to-[#8b5cf6]" />
               </div>
