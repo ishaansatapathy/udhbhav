@@ -83,22 +83,22 @@ export default function TacticalNav() {
             initial={{ y: -20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
-            className={`fixed top-0 left-0 right-0 z-50 transition-all duration-700 ${scrolled
-                ? "bg-black/70 backdrop-blur-2xl shadow-2xl"
-                : "bg-white/2 backdrop-blur-lg"
+            className={`fixed top-0 left-0 right-0 z-[5500] transition-all duration-500 ${scrolled
+                ? "bg-slate-950/95 backdrop-blur-xl shadow-2xl"
+                : "bg-slate-950/80 backdrop-blur-xl"
                 }`}
             style={{
                 borderBottom: scrolled
-                    ? "1px solid rgba(124,58,237,0.12)"
-                    : "1px solid rgba(255,255,255,0.04)",
+                    ? "1px solid rgba(71,85,105,0.7)"
+                    : "1px solid rgba(71,85,105,0.45)",
             }}
         >
             {/* Bottom glow line */}
             <div
-                className="absolute bottom-0 left-0 right-0 h-px transition-opacity duration-700"
+                className="absolute bottom-0 left-0 right-0 h-px transition-opacity duration-500"
                 style={{
-                    background: "linear-gradient(90deg, transparent 2%, rgba(124,58,237,0.5) 25%, rgba(99,102,241,0.4) 50%, rgba(124,58,237,0.5) 75%, transparent 98%)",
-                    opacity: scrolled ? 0.9 : 0.25,
+                    background: "linear-gradient(90deg, transparent 2%, rgba(34,211,238,0.5) 25%, rgba(59,130,246,0.4) 50%, rgba(34,211,238,0.5) 75%, transparent 98%)",
+                    opacity: scrolled ? 0.8 : 0.55,
                 }}
             />
 
@@ -111,7 +111,7 @@ export default function TacticalNav() {
                 }}
             />
 
-            <div className="px-6 md:px-12 py-3.5 flex items-center justify-between max-w-360 mx-auto">
+            <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between px-5 py-3 md:px-10">
                 {/* Brand */}
                 <Link to="/" className="flex items-center gap-2 group">
                     <div ref={brandRef} className="flex items-center gap-2.5">
@@ -119,9 +119,9 @@ export default function TacticalNav() {
                             className="brand-icon w-8 h-8 flex items-center justify-center transition-all duration-400"
                             whileHover={{ rotate: 15, scale: 1.1 }}
                             style={{ opacity: 0 }}>
-                            <img src="/morpankh.png" alt="Saarthi" className="w-8 h-8 object-contain drop-shadow-[0_0_8px_rgba(139,92,246,0.3)]" />
+                            <img src="/morpankh.png" alt="Saarthi" className="h-7 w-7 object-contain drop-shadow-[0_0_6px_rgba(34,211,238,0.28)]" />
                         </motion.div>
-                        <span className="text-white font-bold text-sm tracking-[0.18em] uppercase group-hover:text-[#a78bfa] transition-colors duration-400">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-100 transition-colors duration-300 group-hover:text-cyan-300 md:text-sm">
                             {"SAARTHI".split("").map((ch, i) => (
                                 <span key={i} className="brand-letter inline-block" style={{ opacity: 0 }}>
                                     {ch}
@@ -132,7 +132,7 @@ export default function TacticalNav() {
                 </Link>
 
                 {/* Navigation links */}
-                <nav ref={navRef} className="flex items-center gap-1 md:gap-1.5">
+                <nav ref={navRef} className="relative z-[1] flex items-center gap-1">
                     {NAV_LINKS.map(({ to, label }) => {
                         const isActive = location.pathname === to
                         const isEmergency = to === "/emergency"
@@ -141,14 +141,14 @@ export default function TacticalNav() {
                             <Link
                                 key={to}
                                 to={to}
-                                className={`nav-link-tactical relative px-3.5 py-2 rounded-lg text-[11px] font-semibold tracking-[0.14em] uppercase transition-all duration-400
+                                className={`nav-link-tactical relative rounded-md px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition-all duration-300 md:text-[11px]
                   ${isActive
-                                        ? "text-white active"
+                                        ? "text-slate-100 active"
                                         : isEmergency
-                                            ? "text-red-400/70 hover:text-red-300"
-                                            : "text-white/30 hover:text-white/85 hover:bg-white/4"
+                                            ? "text-rose-300/90 hover:text-rose-200"
+                                            : "text-slate-300/80 hover:bg-slate-800 hover:text-slate-100"
                                     }
-                  hover:scale-[1.04]
+                  hover:scale-[1.02]
                 `}
                             >
                                 {label}
@@ -158,8 +158,8 @@ export default function TacticalNav() {
                                         className="absolute inset-0 rounded-lg -z-10"
                                         style={{
                                             background: isEmergency
-                                                ? "rgba(220,38,38,0.12)"
-                                                : "rgba(124,58,237,0.12)",
+                                                ? "rgba(136,19,55,0.45)"
+                                                : "rgba(30,64,175,0.35)",
                                             border: `1px solid ${isEmergency ? "rgba(220,38,38,0.25)" : "rgba(124,58,237,0.25)"}`,
                                             boxShadow: isEmergency
                                                 ? "0 0 12px rgba(220,38,38,0.1)"

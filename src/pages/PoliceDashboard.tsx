@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react"
-import { Link } from "react-router-dom"
+import { useEffect, useMemo, useRef, useState } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import { getSocket, releaseSocket } from "../lib/socket"
@@ -19,7 +18,36 @@ import { generateIncidentText } from "../lib/generateIncidentText"
 const INITIAL_CENTER: [number, number] = [12.9716, 77.5946]
 const INITIAL_ZOOM = 11
 
+/** Demo field reports when backend has not filed any (hackathon / offline demo). */
+const DEMO_AGENT_FIELD_REPORTS = [
+  { id: "AR-DEMO-1", agentId: "UAV-NODE-07", headline: "Perimeter sweep — MG Road choke", detail: "Crowd density +40% vs baseline; recommend ground unit cross-check.", lat: 12.9756, lng: 77.6066, severity: "MEDIUM", ts: Date.now() - 420_000 },
+  { id: "AR-DEMO-2", agentId: "GROUND-ALPHA-3", headline: "ANPR hit — flagged plate", detail: "Koramangala ring · handoff to patrol corridor B.", lat: 12.9352, lng: 77.6245, severity: "HIGH", ts: Date.now() - 300_000 },
+  { id: "AR-DEMO-3", agentId: "MOBILE-BETA-1", headline: "Silent SOS proximity cluster", detail: "Two distress beacons within 180 m; med asset pre-position suggested.", lat: 12.9289, lng: 77.5901, severity: "CRITICAL", ts: Date.now() - 120_000 },
+  { id: "AR-DEMO-4", agentId: "DISPATCH-BOT", headline: "Convoy timing slip", detail: "Ambulance ETA slip 3 min; alternate artery per live traffic mesh.", lat: 12.9540, lng: 77.5777, severity: "LOW", ts: Date.now() - 600_000 },
+] as const
+
+function fallbackCurvedRoute(a: [number, number], b: [number, number]): [number, number][] {
+  const midLat = (a[0] + b[0]) / 2 + (b[1] - a[1]) * 0.12
+  const midLng = (a[1] + b[1]) / 2 - (b[0] - a[0]) * 0.12
+  return [a, [midLat, midLng], b]
+}
+
+async function fetchDrivingRouteLatLng(
+  from: [number, number],
+  to: [number, number],
+  signal?: AbortSignal,
+): Promise<[number, number][]> {
+  const lonlat = `${from[1]},${from[0]};${to[1]},${to[0]}`
+  const url = `https://router.project-osrm.org/route/v1/driving/${lonlat}?overview=full&geometries=geojson`
+  const res = await fetch(url, { signal })
+  const data = await res.json()
+  if (data.code !== "Ok" || !data.routes?.[0]?.geometry?.coordinates?.length) throw new Error("no route")
+  return data.routes[0].geometry.coordinates.map(([lng, lat]: [number, number]) => [lat, lng])
+}
+
 type VerifyStatus = "pending" | "verified" | "invalid" | "unsigned" | null
+
+type DispatchSelection = { key: string; title: string; lat: number; lng: number }
 
 interface VehicleReport {
   id: string
@@ -44,6 +72,7 @@ export default function PoliceDashboard() {
   const scanCircleRef = useRef<L.Circle | null>(null)
   const gridLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
   const vehicleLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
+  const dispatchPathLayerRef = useRef<L.LayerGroup>(new L.LayerGroup())
 
   const [stations, setStations] = useState<PoliceStation[]>([])
   const [selectedStation, setSelectedStation] = useState<string>("")
@@ -68,6 +97,8 @@ export default function PoliceDashboard() {
     event_id: string; user_id: string; lat: number; lng: number;
     level: string; status: string; timestamp: number; category?: string;
   }>>([])
+  const [dispatchSelection, setDispatchSelection] = useState<DispatchSelection | null>(null)
+  const [routeLoading, setRouteLoading] = useState(false)
 
   // ── Risk Heatmap + Score + Incident Text state ──
   const [showRiskZones, setShowRiskZones] = useState(false)
@@ -80,6 +111,38 @@ export default function PoliceDashboard() {
     const id = setInterval(() => setClockStr(new Date().toLocaleString()), 1000)
     return () => clearInterval(id)
   }, [])
+
+  const agentReportsForUi = useMemo(() => {
+    const live = incidentReports
+      .filter(r => r.location)
+      .map(r => ({
+        key: `inc:${r.id}`,
+        agentLabel: r.source || "SOURCE",
+        headline: r.category,
+        detail: r.description || "",
+        lat: r.location!.lat,
+        lng: r.location!.lng,
+        severity: r.severity,
+        ts: r.timestamp,
+        isDemo: false,
+      }))
+    if (live.length > 0) return live
+    return DEMO_AGENT_FIELD_REPORTS.map(d => ({
+      key: `demo:${d.id}`,
+      agentLabel: d.agentId,
+      headline: d.headline,
+      detail: d.detail,
+      lat: d.lat,
+      lng: d.lng,
+      severity: d.severity,
+      ts: d.ts,
+      isDemo: true,
+    }))
+  }, [incidentReports])
+
+  function toggleDispatchPath(next: DispatchSelection) {
+    setDispatchSelection(prev => (prev?.key === next.key ? null : next))
+  }
 
   useEffect(() => {
     fetch(`${API_BASE}/api/stations`)
@@ -108,7 +171,7 @@ export default function PoliceDashboard() {
 
     const panes: [string, string][] = [
       ["grid", "400"], ["ranges", "500"], ["stations", "600"],
-      ["cabs", "700"], ["scanning", "800"], ["alerts", "900"],
+      ["cabs", "700"], ["routes", "865"], ["scanning", "800"], ["alerts", "900"],
     ]
     panes.forEach(([name, z]) => {
       map.createPane(name)
@@ -121,6 +184,7 @@ export default function PoliceDashboard() {
     alertLayerRef.current.addTo(map)
     gridLayerRef.current.addTo(map)
     vehicleLayerRef.current.addTo(map)
+    dispatchPathLayerRef.current.addTo(map)
     mapRef.current = map
 
     const drawGrid = () => {
@@ -448,6 +512,69 @@ export default function PoliceDashboard() {
     })
   }, [sosEmergencies])
 
+  // ── Driving route from selected command station → report / SOS pin ──
+  useEffect(() => {
+    const map = mapRef.current
+    let alive = true
+    dispatchPathLayerRef.current.clearLayers()
+    setRouteLoading(false)
+    if (!map || !dispatchSelection || !selectedStation) return
+    const st = stations.find(s => s.id === selectedStation)
+    if (!st) return
+
+    const ac = new AbortController()
+    const from: [number, number] = [st.lat, st.lon]
+    const to: [number, number] = [dispatchSelection.lat, dispatchSelection.lng]
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    setRouteLoading(true)
+
+    ;(async () => {
+      let latlngs: [number, number][]
+      try {
+        timeoutId = setTimeout(() => ac.abort(), 8200)
+        latlngs = await fetchDrivingRouteLatLng(from, to, ac.signal)
+      } catch {
+        latlngs = fallbackCurvedRoute(from, to)
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId)
+      }
+      if (!alive || ac.signal.aborted || !mapRef.current) return
+
+      dispatchPathLayerRef.current.clearLayers()
+      L.polyline(latlngs, {
+        color: "#22d3ee", weight: 4, opacity: 0.95, pane: "routes", lineCap: "round", lineJoin: "round",
+      }).addTo(dispatchPathLayerRef.current)
+      L.polyline(latlngs, {
+        color: "#06b6d4", weight: 11, opacity: 0.18, pane: "routes", lineCap: "round", lineJoin: "round",
+      }).addTo(dispatchPathLayerRef.current)
+
+      L.circleMarker(from, {
+        radius: 8, fillColor: "#22c55e", color: "#fff", weight: 2, fillOpacity: 1, pane: "routes",
+      })
+        .bindTooltip("Command station", { direction: "top", className: "ps-tooltip" })
+        .addTo(dispatchPathLayerRef.current)
+      L.circleMarker(to, {
+        radius: 10, fillColor: "#22d3ee", color: "#fff", weight: 2, fillOpacity: 1, pane: "routes",
+      })
+        .bindTooltip(dispatchSelection.title.slice(0, 80), { direction: "top", className: "ps-tooltip" })
+        .addTo(dispatchPathLayerRef.current)
+
+      try {
+        mapRef.current.fitBounds(L.latLngBounds(latlngs), { padding: [88, 88], maxZoom: 14 })
+      } catch { /* bounds too small etc. */ }
+
+      setRouteLoading(false)
+    })()
+
+    return () => {
+      alive = false
+      ac.abort()
+      if (timeoutId) clearTimeout(timeoutId)
+      dispatchPathLayerRef.current.clearLayers()
+      setRouteLoading(false)
+    }
+  }, [dispatchSelection, selectedStation, stations])
+
   useEffect(() => {
     if (stations.length === 0) return
     let simStep = 0
@@ -532,7 +659,9 @@ export default function PoliceDashboard() {
               </div>
               <div className="flex justify-between">
                 <span className="text-green-600">Reports</span>
-                <span className={incidentReports.length > 0 ? "text-cyan-400" : "text-green-400"}>{incidentReports.length > 0 ? `${incidentReports.length} FILED` : "NONE"}</span>
+                <span className={agentReportsForUi.length > 0 ? "text-cyan-400" : "text-green-400"}>
+                  {agentReportsForUi.length > 0 ? `${agentReportsForUi.length} OPEN` : "NONE"}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-green-600">Activity</span>
@@ -540,6 +669,63 @@ export default function PoliceDashboard() {
                   {vehicleReports.length > 0 ? `${vehicleReports.filter(v => v.status === "ACTIVE_TRACKING").length} TRACKING / ${vehicleReports.length}` : "NONE"}
                 </span>
               </div>
+            </div>
+          </div>
+
+          <div className="border border-cyan-800/70 rounded p-3 bg-[#050a08]/90">
+            <p className="text-cyan-400 text-xs font-bold tracking-widest mb-2 flex flex-wrap items-center gap-2">
+              <span>▸ AGENT FIELD REPORTS</span>
+              {agentReportsForUi.length > 0 && agentReportsForUi.every(r => r.isDemo) && (
+                <span className="rounded border border-cyan-800 px-1.5 py-0.5 text-[9px] font-normal uppercase tracking-wide text-cyan-600">
+                  offline demo
+                </span>
+              )}
+              {routeLoading && (
+                <span className="ml-auto animate-pulse text-[10px] font-normal uppercase text-yellow-400">routing…</span>
+              )}
+            </p>
+            <p className="mb-2 text-[10px] leading-snug text-cyan-800/90">
+              Tap coordinates or Dispatch path — route from Command Station appears on map (road snap via OSRM; falls back if offline).
+            </p>
+            <div className="max-h-52 space-y-1.5 overflow-y-auto">
+              {agentReportsForUi.length === 0 ? (
+                <p className="text-green-800 text-[11px]">No agent reports.</p>
+              ) : (
+                agentReportsForUi.map(r => {
+                  const sel = dispatchSelection?.key === r.key
+                  const sevCol =
+                    r.severity === "CRITICAL" ? "text-red-400"
+                      : r.severity === "HIGH" ? "text-orange-400"
+                        : r.severity === "MEDIUM" ? "text-yellow-400"
+                          : "text-green-400"
+                  return (
+                    <div
+                      key={r.key}
+                      className={`rounded border px-2 py-1.5 text-[11px] transition-colors ${sel ? "border-cyan-400 bg-cyan-950/50" : "border-cyan-900/70 bg-cyan-950/20"}`}
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <span className="font-bold text-cyan-200">{r.headline}</span>
+                        <span className={`shrink-0 text-[9px] font-bold uppercase ${sevCol}`}>{r.severity}</span>
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-cyan-600">
+                        Agent <span className="text-cyan-300">{r.agentLabel}</span>
+                        · {new Date(r.ts).toLocaleTimeString()}
+                      </div>
+                      {r.detail && (
+                        <div className="mt-1 line-clamp-2 text-[10px] text-cyan-500/80">{r.detail}</div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleDispatchPath({ key: r.key, title: r.headline, lat: r.lat, lng: r.lng })}
+                        className="mt-1.5 block w-full rounded border border-cyan-700 bg-black/60 py-1.5 text-left text-[10px] text-cyan-300 hover:border-cyan-500 hover:bg-cyan-950/40"
+                      >
+                        Dispatch path · {r.lat.toFixed(4)}, {r.lng.toFixed(4)}
+                        {sel ? "  (tap to hide)" : ""}
+                      </button>
+                    </div>
+                  )
+                })
+              )}
             </div>
           </div>
 
@@ -649,6 +835,23 @@ export default function PoliceDashboard() {
                       <div className="text-red-600 text-[10px] mt-0.5">
                         📍 {e.lat.toFixed(4)}, {e.lng.toFixed(4)}{e.category ? ` · ${e.category}` : ""}
                       </div>
+                      {(e.status === "ACTIVE" || e.status === "ESCALATED") && (
+                        <button
+                          type="button"
+                          onClick={(ev) => {
+                            ev.preventDefault()
+                            toggleDispatchPath({
+                              key: `sos:${e.event_id}`,
+                              title: `${e.event_id} · ${e.level}`,
+                              lat: e.lat,
+                              lng: e.lng,
+                            })
+                          }}
+                          className="mt-1.5 block w-full rounded border border-red-900/70 bg-red-950/40 py-1 text-[10px] text-red-200 hover:border-red-500 hover:bg-red-900/60"
+                        >
+                          Station dispatch path{dispatchSelection?.key === `sos:${e.event_id}` ? " · hide" : ""}
+                        </button>
+                      )}
                     </div>
                   )
                 })
@@ -724,8 +927,20 @@ export default function PoliceDashboard() {
                         <div className="text-cyan-500/70 text-[10px] mt-0.5 truncate">{r.description}</div>
                       )}
                       <div className="text-cyan-800 text-[9px] mt-0.5">
-                        {new Date(r.timestamp).toLocaleTimeString()}
-                        {r.location ? ` · ${r.location.lat.toFixed(4)}, ${r.location.lng.toFixed(4)}` : ""}
+                        <button
+                          type="button"
+                          onClick={() => r.location && toggleDispatchPath({
+                            key: `inc-panel:${r.id}`,
+                            title: r.category,
+                            lat: r.location.lat,
+                            lng: r.location.lng,
+                          })}
+                          disabled={!r.location}
+                          className={`block w-full truncate text-left underline-offset-2 ${r.location ? "cursor-pointer text-cyan-500 hover:text-cyan-300 hover:underline" : "text-cyan-800"}`}
+                        >
+                          {new Date(r.timestamp).toLocaleTimeString()}
+                          {r.location ? ` · ${r.location.lat.toFixed(4)}, ${r.location.lng.toFixed(4)}` : ""}
+                        </button>
                       </div>
                     </div>
                   )
@@ -782,7 +997,21 @@ export default function PoliceDashboard() {
                         <span className="text-orange-800 text-[9px]">{new Date(v.timestamp).toLocaleTimeString()}</span>
                       </div>
                       <div className="text-orange-600 text-[10px] mt-0.5">
-                        Last: {v.lat.toFixed(4)}, {v.lng.toFixed(4)} · {v.tracking_history.length} pts
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleDispatchPath({
+                              key: `veh-last:${v.id}`,
+                              title: `${v.vehicle_number || v.id} (last ping)`,
+                              lat: v.lat,
+                              lng: v.lng,
+                            })
+                          }}
+                          className="text-left underline-offset-2 hover:text-orange-400 hover:underline"
+                        >
+                          Last: {v.lat.toFixed(4)}, {v.lng.toFixed(4)} · {v.tracking_history.length} pts — station path
+                        </button>
                       </div>
                       {v.linkedDriverId && (
                         <div className="text-purple-400 text-[10px] mt-0.5 font-bold">
@@ -813,6 +1042,22 @@ export default function PoliceDashboard() {
         </div>
 
         <div className="flex-1 relative">
+          {dispatchSelection && (
+            <div className="absolute left-3 top-3 z-1001 flex flex-col gap-1">
+              <button
+                type="button"
+                onClick={() => setDispatchSelection(null)}
+                className="rounded border border-cyan-600 bg-black/85 px-2 py-1.5 font-mono text-[10px] font-bold uppercase tracking-wide text-cyan-300 hover:border-cyan-400 hover:bg-cyan-950/80"
+              >
+                Clear dispatch path
+              </button>
+              {routeLoading && (
+                <div className="rounded border border-yellow-700/80 bg-black/90 px-2 py-1 font-mono text-[10px] text-yellow-400">
+                  Road-snapping route…
+                </div>
+              )}
+            </div>
+          )}
           <div ref={mapContainerRef} className="w-full h-full" />
           <RiskHeatmap map={mapRef.current} visible={showRiskZones} />
           <div className="absolute top-3 right-3 bg-black/80 border border-green-700 rounded p-2 text-green-400 text-xs z-999 space-y-0.5">
@@ -823,6 +1068,10 @@ export default function PoliceDashboard() {
           </div>
           <div className="absolute bottom-3 right-3 bg-black/80 border border-green-700 rounded p-2 text-[10px] z-999 space-y-1">
             <div className="flex items-center gap-2">
+              <span className="inline-block h-2 w-7 rounded-full border border-cyan-500 bg-linear-to-r from-cyan-500 to-teal-400" />
+              <span className="text-cyan-300">HQ dispatch path → target</span>
+            </div>
+            <div className="flex items-center gap-2">
               <span className="inline-block w-3 h-3 rounded-full bg-green-400 border border-white" />
               <span>Police Station</span>
             </div>
@@ -831,11 +1080,11 @@ export default function PoliceDashboard() {
               <span className="text-red-400">Emergency</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-lg leading-3">�</span>
+              <span className="text-sm leading-3" aria-hidden>🚨</span>
               <span className="text-red-300">SOS Event</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-lg leading-3">�🚕</span>
+              <span className="text-sm leading-3" aria-hidden>🚕</span>
               <span>Cab (Green/Yellow/Red = Risk)</span>
             </div>
             <div className="flex items-center gap-2">

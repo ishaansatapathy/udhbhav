@@ -20,7 +20,7 @@ export default function FleetPanel({ vehicles, selectedId, onFocus, onTriggerDev
         <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="absolute bottom-32 left-4 z-1005 w-60 rounded-2xl overflow-hidden shadow-2xl"
+            className="absolute bottom-32 left-4 z-[1005] w-60 rounded-2xl overflow-hidden shadow-2xl"
             style={{
                 background: "rgba(10,10,15,0.95)",
                 backdropFilter: "blur(16px)",
