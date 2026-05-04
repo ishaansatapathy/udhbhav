@@ -55,9 +55,9 @@ export default function PoliceDashboard() {
       preferCanvas: true,
     });
 
-    // Dark tactical tiles
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "",
+    // OpenStreetMap standard light tiles (original white/light map)
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap",
       maxZoom: 19,
     }).addTo(map);
 
@@ -95,12 +95,12 @@ export default function PoliceDashboard() {
       const lngStart = Math.floor(bounds.getWest() / gridSize) * gridSize;
       const lngEnd = Math.ceil(bounds.getEast() / gridSize) * gridSize;
 
-      // Vertical lines
+      // Vertical lines (subtle gray on light map)
       for (let lng = lngStart; lng <= lngEnd; lng += gridSize) {
         const line = L.polyline([[latStart, lng], [latEnd, lng]], {
-          color: "#000000",
+          color: "#999999",
           weight: 1,
-          opacity: 0.3,
+          opacity: 0.35,
           pane: "grid"
         });
         gridRef.current.addLayer(line);
@@ -109,9 +109,9 @@ export default function PoliceDashboard() {
       // Horizontal lines
       for (let lat = latStart; lat <= latEnd; lat += gridSize) {
         const line = L.polyline([[lat, lngStart], [lat, lngEnd]], {
-          color: "#000000", 
+          color: "#999999", 
           weight: 1,
-          opacity: 0.3,
+          opacity: 0.35,
           pane: "grid"
         });
         gridRef.current.addLayer(line);

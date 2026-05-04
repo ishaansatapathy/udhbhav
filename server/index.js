@@ -136,21 +136,26 @@ async function start() {
   let listening = false;
   const tryListen = (port) => {
     if (listening) return;
-    const s = server
-      .listen(port, () => {
-        if (listening) return;
-        listening = true;
-        s.removeAllListeners("error");
-        console.log(`Sahayak Police Portal: http://localhost:${port}`);
-        if (isDev) console.log("  Dev mode: Vite HMR enabled");
-      })
-      .on("error", (err) => {
-        if (err.code === "EADDRINUSE" && port < 3010) {
-          console.log(`Port ${port} in use, trying ${port + 1}...`);
-          tryListen(port + 1);
-        } else throw err;
-      });
+    
+    const s = server.listen(port, () => {
+      if (listening) return;
+      listening = true;
+      console.log(`🚀 Sahayak Police Portal: http://localhost:${port}`);
+      console.log(`📍 Police Dashboard: http://localhost:${port}/police`);
+      if (isDev) console.log("⚡ Dev mode: Vite HMR enabled");
+    });
+    
+    s.on("error", (err) => {
+      if (err.code === "EADDRINUSE" && port < 3010) {
+        console.log(`Port ${port} in use, trying ${port + 1}...`);
+        s.close(() => tryListen(port + 1));
+      } else {
+        console.error("Server error:", err);
+        process.exit(1);
+      }
+    });
   };
+  
   tryListen(PORT);
 }
 
