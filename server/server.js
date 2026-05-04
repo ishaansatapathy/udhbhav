@@ -33,6 +33,30 @@ const reportRoutes = require("./routes/report")
 const reportService = require("./services/reportService")
 const vehicleReportRoutes = require("./routes/vehicleReport")
 const vehicleService = require("./services/vehicleService")
+const agentEngine = require("./services/agentEngine")
+const disasterService = require("./services/disasterService")
+const powerGridService = require("./services/powerGridService")
+const negotiationService = require("./services/negotiationService")
+const meshCommsService = require("./services/meshCommsService")
+const crimeHotspotService = require("./services/crimeHotspotService")
+const nlpService = require("./services/nlpService")
+const fairnessService = require("./services/fairnessService")
+
+/** Power ledger + negotiated MW settlement transcript (broadcast together). */
+function emitInterconnect_bundle(targetIo) {
+  const ev = disasterService.getEvents()
+  const snap = powerGridService.buildSnapshot(ev)
+  targetIo.emit("power:update", snap)
+  const negotiationDelta = negotiationService.syncFromSnapshot(ev, snap)
+  if (negotiationDelta) targetIo.emit("negotiation:update", negotiationDelta)
+  const meshDelta = meshCommsService.syncFromSnapshot(snap)
+  if (meshDelta) targetIo.emit("mesh:update", meshDelta)
+}
+
+/** Broadcast full mesh transcript (allocation/cascade/manual lines outside snapshot sync). */
+function emitMeshState(targetIo) {
+  targetIo.emit("mesh:update", meshCommsService.getState())
+}
 
 const app = express()
 const server = http.createServer(app)
@@ -49,12 +73,319 @@ const movementHist = new Map()
 const traceChain = new Map()
 let lastAlertHash = "0"
 
+// ── Load synthetic disaster events on startup ─────────────────────────────────
+disasterService.loadSyntheticEvents()
+
+// ── Disaster allocation helpers (ambulance + hospital paired dispatch) ────────
+function pushAllocationBatch(allocations, event, result) {
+  if (!result?.agent?.id) return
+  meshCommsService.noteAllocation(event, result)
+  allocations.push({ eventId: event.id, agentId: result.agent.id, score: result.score, candidates: result.candidates || [] })
+  if (result.secondary?.id) {
+    allocations.push({
+      eventId: event.id,
+      agentId: result.secondary.id,
+      score: (result.score || 1) * 0.97,
+      candidates: [],
+    })
+  }
+}
+
+function emitAllocationPair(targetIo, event, result) {
+  if (!result?.agent?.id) return
+  meshCommsService.noteAllocation(event, result)
+  targetIo.emit("allocation:success", { eventId: event.id, agentId: result.agent.id, score: result.score, candidates: result.candidates || [] })
+  if (result.secondary?.id) {
+    targetIo.emit("allocation:success", {
+      eventId: event.id,
+      agentId: result.secondary.id,
+      score: (result.score || 1) * 0.97,
+      candidates: [],
+    })
+  }
+  emitMeshState(targetIo)
+}
+
+// ── Agent tick: move vehicles every 2s and broadcast ─────────────────────────
+// io is declared after this block, so we use a lazy ref
+let _io = null
+setInterval(() => {
+  if (!_io) return
+  const resolvedIds = new Set(disasterService.getEvents().filter(e => e.status === "resolved").map(e => e.id))
+  agentEngine.tickAgents(resolvedIds)
+  _io.emit("vehicles:update", agentEngine.getAgents())
+  _io.emit("events:update", disasterService.getActiveEvents())
+  emitInterconnect_bundle(_io)
+}, 2000)
+
 // ── REST API ──────────────────────────────────────────────────────────────────
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }))
 
 /** Police stations list */
 app.get("/api/stations", (_req, res) => res.json(geo.getStations()))
+
+// ── Disaster / Agent REST endpoints ──────────────────────────────────────────
+
+/** GET all agents */
+app.get("/api/agents", (_req, res) => res.json(agentEngine.getAgents()))
+
+/** GET all events */
+app.get("/api/events", (_req, res) => res.json(disasterService.getActiveEvents()))
+
+/** GET blocked road zones */
+app.get("/api/blocked-zones", (_req, res) => res.json(disasterService.getBlockedZones()))
+
+/** GET crisis power interconnect snapshot (MW scarcity + utility loads) */
+app.get("/api/power-grid", (_req, res) => {
+  res.json(powerGridService.buildSnapshot(disasterService.getEvents()))
+})
+
+/** GET interconnect negotiation transcript (utility MW bids ↔ grid counter-offers ↔ finalize) */
+app.get("/api/negotiation-log", (_req, res) => {
+  res.json(negotiationService.getState())
+})
+
+/** GET mesh comms transcript (operator + utility chatter for demo visibility) */
+app.get("/api/mesh-log", (_req, res) => {
+  res.json(meshCommsService.getState())
+})
+
+/** GET city-level crime aggregates from bundled CSV (no per-record PII; not live feeds). */
+app.get("/api/crime-hotspots", (req, res) => {
+  const limit = Number(req.query?.limit)
+  res.json(crimeHotspotService.getHotspots(Number.isFinite(limit) ? { limit } : {}))
+})
+
+/** GET/POST allocator fairness γ (duty spread vs greedy score; multi-incident relief for smaller loads) */
+app.get("/api/fairness", (_req, res) => {
+  res.json({ fairnessGamma: fairnessService.getFairnessGamma() })
+})
+app.post("/api/fairness", (req, res) => {
+  const gamma = fairnessService.setFairnessGamma(req.body?.fairnessGamma ?? req.body?.gamma ?? 0.38)
+  io.emit("fairness:update", { fairnessGamma: gamma })
+  meshCommsService.noteFairnessGamma(gamma)
+  emitMeshState(io)
+  res.json({ fairnessGamma: gamma })
+})
+
+/** POST trigger a disaster scenario */
+app.post("/api/disaster/trigger", (req, res) => {
+  const { type } = req.body
+  if (!type) return res.status(400).json({ error: "type required" })
+  const newEvents = disasterService.triggerDisaster(type)
+  const allocations = []
+  for (const event of newEvents) {
+    // Try normal allocation first, then re-allocation
+    let result = disasterService.allocateToEvent(event)
+    if (!result) result = disasterService.checkReallocation(event)
+    pushAllocationBatch(allocations, event, result)
+  }
+  io.emit("events:update", disasterService.getActiveEvents())
+  io.emit("vehicles:update", agentEngine.getAgents())
+  io.emit("allocation:batch", allocations)
+  emitInterconnect_bundle(io)
+  emitMeshState(io)
+  res.json({ triggered: newEvents.length, allocations })
+})
+
+/** POST trigger full crisis wave */
+app.post("/api/disaster/crisis", (_req, res) => {
+  const newEvents = disasterService.triggerCrisisScenario()
+  const allocations = []
+  for (const event of newEvents) {
+    let result = disasterService.allocateToEvent(event)
+    if (!result) result = disasterService.checkReallocation(event)
+    pushAllocationBatch(allocations, event, result)
+  }
+  io.emit("events:update", disasterService.getActiveEvents())
+  io.emit("vehicles:update", agentEngine.getAgents())
+  io.emit("allocation:batch", allocations)
+  emitInterconnect_bundle(io)
+  emitMeshState(io)
+  res.json({ triggered: newEvents.length, allocations, mode: "crisis" })
+})
+
+/** POST cascading interconnect strike — damage layer stacks + correlated incidents (renegotiates MW ledger) */
+app.post("/api/disaster/cascade", (_req, res) => {
+  const out = disasterService.triggerCascadeStrike()
+  const allocations = []
+  if (out.primary) pushAllocationBatch(allocations, out.events[0], out.primary)
+  if (out.secondaryCascade) pushAllocationBatch(allocations, out.events[1], out.secondaryCascade)
+  io.emit("events:update", disasterService.getActiveEvents())
+  io.emit("vehicles:update", agentEngine.getAgents())
+  io.emit("allocation:batch", allocations)
+  emitInterconnect_bundle(io)
+  emitMeshState(io)
+  res.json({
+    ok: true,
+    mode: "cascade",
+    events: out.events.map(e => ({ id: e.id, type: e.type })),
+    allocations,
+  })
+})
+
+/** POST one-click PS demo — crisis wave then cascade strike (scarcity + renegotiation) */
+app.post("/api/disaster/ps-demo", async (_req, res) => {
+  const summary = {
+    mode: "ps-demo",
+    crisisTriggered: 0,
+    cascadeTriggered: 0,
+    allocations: 0,
+    cascadeEvents: [],
+  }
+
+  const crisisEvents = disasterService.triggerCrisisScenario()
+  summary.crisisTriggered = crisisEvents.length
+  for (const ev of crisisEvents) {
+    let result = disasterService.allocateToEvent(ev)
+    if (!result) result = disasterService.checkReallocation(ev)
+    if (result) {
+      meshCommsService.noteAllocation(ev, result)
+      summary.allocations++
+    }
+  }
+
+  // Allow one heartbeat worth of allocations before secondary strike
+  await new Promise(r => setTimeout(r, 650))
+
+  const out = disasterService.triggerCascadeStrike()
+  summary.cascadeTriggered = out.events.length
+  summary.cascadeEvents = out.events.map(e => ({ id: e.id, type: e.type }))
+  if (out.primary) {
+    meshCommsService.noteAllocation(out.events[0], out.primary)
+    summary.allocations++
+  }
+  if (out.secondaryCascade) {
+    meshCommsService.noteAllocation(out.events[1], out.secondaryCascade)
+    summary.allocations++
+  }
+
+  io.emit("events:update", disasterService.getActiveEvents())
+  io.emit("vehicles:update", agentEngine.getAgents())
+  emitInterconnect_bundle(io)
+  emitMeshState(io)
+  res.json({ ok: true, summary })
+})
+
+/** POST one-click deterministic demo mission */
+app.post("/api/disaster/demo-mission", (_req, res) => {
+  const summary = { triggered: 0, allocations: 0, failedAgent: null, womenSosEvent: null }
+
+  const crisisEvents = disasterService.triggerCrisisScenario()
+  summary.triggered += crisisEvents.length
+  for (const event of crisisEvents) {
+    let result = disasterService.allocateToEvent(event)
+    if (!result) result = disasterService.checkReallocation(event)
+    if (result) {
+      meshCommsService.noteAllocation(event, result)
+      summary.allocations++
+    }
+  }
+
+  const assigned = agentEngine.getAgents().find(a => a.status === "assigned")
+  if (assigned) {
+    const failResult = disasterService.simulateAgentFailure(assigned.id)
+    if (failResult?.newAllocation && failResult.eventId) {
+      const evFull = disasterService.getEventById(failResult.eventId)
+      if (evFull) meshCommsService.noteAllocation(evFull, failResult.newAllocation)
+    }
+    if (failResult) summary.failedAgent = assigned.id
+  }
+
+  const womenSos = disasterService.triggerDisaster("women_sos")
+  summary.triggered += womenSos.length
+  for (const event of womenSos) {
+    let result = disasterService.allocateToEvent(event)
+    if (!result) result = disasterService.checkReallocation(event)
+    if (result) {
+      meshCommsService.noteAllocation(event, result)
+      summary.allocations++
+    }
+    summary.womenSosEvent = event.id
+  }
+
+  io.emit("events:update", disasterService.getActiveEvents())
+  io.emit("vehicles:update", agentEngine.getAgents())
+  emitInterconnect_bundle(io)
+  emitMeshState(io)
+  res.json({ ok: true, mode: "demo-mission", summary })
+})
+
+/** POST create a single custom event */
+app.post("/api/disaster/event", (req, res) => {
+  const { type, lat, lng, severity } = req.body
+  if (!type) return res.status(400).json({ error: "type required" })
+  const event = disasterService.createEvent({ type, lat, lng, severity, source: "manual" })
+  const allocation = disasterService.allocateToEvent(event)
+  io.emit("events:update", disasterService.getActiveEvents())
+  io.emit("vehicles:update", agentEngine.getAgents())
+  emitAllocationPair(io, event, allocation)
+  emitInterconnect_bundle(io)
+  res.json({ event, allocation: allocation ? { agentId: allocation.agent.id } : null })
+})
+
+/** POST resolve an event */
+app.post("/api/disaster/resolve", (req, res) => {
+  const { eventId } = req.body
+  const event = disasterService.resolveEvent(eventId)
+  io.emit("events:update", disasterService.getActiveEvents())
+  io.emit("vehicles:update", agentEngine.getAgents())
+  emitInterconnect_bundle(io)
+  res.json({ resolved: !!event })
+})
+
+/** POST classify a tweet */
+app.post("/api/nlp/classify", (req, res) => {
+  const { text } = req.body
+  if (!text) return res.status(400).json({ error: "text required" })
+  const result = nlpService.classifyText(text)
+  // Auto-create event if disaster detected
+  if (result.label === "disaster") {
+    const eventType = nlpService.mapToEventType(result.disaster_type)
+    const event = disasterService.createEvent({ type: eventType, severity: Math.floor(result.confidence * 10), source: "nlp_tweet" })
+    const allocation = disasterService.allocateToEvent(event)
+    io.emit("events:update", disasterService.getActiveEvents())
+    io.emit("vehicles:update", agentEngine.getAgents())
+    emitAllocationPair(io, event, allocation)
+    emitInterconnect_bundle(io)
+    result.event_created = event.id
+  }
+  res.json(result)
+})
+
+/** POST simulate an agent failure */
+app.post("/api/disaster/simulate-failure", (req, res) => {
+  const { agentId } = req.body
+  if (!agentId) return res.status(400).json({ error: "agentId required" })
+  const result = disasterService.simulateAgentFailure(agentId)
+  
+  if (result) {
+    io.emit("events:update", disasterService.getActiveEvents())
+    io.emit("vehicles:update", agentEngine.getAgents())
+    if (result.newAllocation) {
+      const evFull = disasterService.getEventById(result.eventId)
+      if (evFull) emitAllocationPair(io, evFull, result.newAllocation)
+    }
+    emitInterconnect_bundle(io)
+  }
+  res.json({ success: !!result, result })
+})
+
+/** POST reset simulation */
+app.post("/api/disaster/reset", (_req, res) => {
+  disasterService.resetEvents() // resetEvents calls agentEngine.resetAgents() internally
+  powerGridService.reset()
+  negotiationService.reset()
+  meshCommsService.reset()
+  io.emit("events:update", disasterService.getActiveEvents())
+  io.emit("vehicles:update", agentEngine.getAgents())
+  io.emit("allocation:batch", [])
+  emitMeshState(io)
+  emitInterconnect_bundle(io)
+  io.emit("fairness:update", { fairnessGamma: fairnessService.getFairnessGamma() })
+  res.json({ ok: true, fairnessGamma: fairnessService.getFairnessGamma() })
+})
 
 /** Server RSA public key (PEM) */
 app.get("/api/crypto/public-key", (_req, res) =>
@@ -129,7 +460,20 @@ emergencyService.setOnCreateCallback((emergency) => {
 // ── Socket.io ─────────────────────────────────────────────────────────────────
 
 io.on("connection", (socket) => {
+  _io = io // set lazy reference for the tick interval
   console.log(`[+] Client connected   id=${socket.id}`)
+
+  // Send initial disaster state to newly connected client
+  socket.emit("vehicles:update", agentEngine.getAgents())
+  socket.emit("events:update", disasterService.getActiveEvents())
+  const bootEv = disasterService.getEvents()
+  const bootSnap = powerGridService.buildSnapshot(bootEv)
+  negotiationService.syncFromSnapshot(bootEv, bootSnap)
+  socket.emit("power:update", bootSnap)
+  socket.emit("negotiation:update", negotiationService.getState())
+  socket.emit("mesh:update", meshCommsService.getState())
+  socket.emit("fairness:update", { fairnessGamma: fairnessService.getFairnessGamma() })
+
 
   // Send existing incident reports to newly connected client (Police Dashboard)
   const existingReports = reportService.getReports()
@@ -249,6 +593,21 @@ io.on("connection", (socket) => {
       lastAlertHash = alert.hash
       alertLog.push(alert)
       io.emit("silent_alert", alert)
+      const eventType = distressTriggers.includes("RISK_CRITICAL") ? "women_sos" : "fire"
+      const derivedSeverity = Math.max(7, Math.min(10, Math.round(riskScore / 10)))
+      const anomalyEvent = disasterService.createEvent({
+        type: eventType,
+        lat,
+        lng: lon,
+        severity: derivedSeverity,
+        source: "anomaly_detection",
+      })
+      let anomalyAllocation = disasterService.allocateToEvent(anomalyEvent)
+      if (!anomalyAllocation) anomalyAllocation = disasterService.checkReallocation(anomalyEvent)
+      if (anomalyAllocation) emitAllocationPair(io, anomalyEvent, anomalyAllocation)
+      io.emit("events:update", disasterService.getActiveEvents())
+      io.emit("vehicles:update", agentEngine.getAgents())
+      emitInterconnect_bundle(io)
     }
 
     cabState.set(cabId, newState)

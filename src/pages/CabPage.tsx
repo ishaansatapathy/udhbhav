@@ -1628,7 +1628,7 @@ export default function CabPage() {
       />
 
       {/* Premium Tactical Navbar */}
-      <div className="shrink-0 z-1100">
+      <div className="shrink-0 z-[1100]">
         <TacticalNav />
       </div>
 
@@ -1641,7 +1641,7 @@ export default function CabPage() {
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               transition={{ duration: 0.6 }}
-              className="absolute inset-0 z-1 pointer-events-none"
+              className="absolute inset-0 z-[1] pointer-events-none"
               style={{
                 backgroundImage: `
                   linear-gradient(rgba(124,58,237,0.07) 1px, transparent 1px),
@@ -1660,7 +1660,7 @@ export default function CabPage() {
           {!isOnline && relayPhase === "idle" && (
             <motion.div
               initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className={`absolute left-0 right-0 z-1048 ${deviationAlert ? "top-12" : "top-0"}`}>
+              className={`absolute left-0 right-0 z-[1048] ${deviationAlert ? "top-12" : "top-0"}`}>
               <motion.div
                 animate={{ opacity: [0.85, 1, 0.85] }} transition={{ repeat: Infinity, duration: 2.5 }}
                 className="flex items-center justify-center gap-3 px-6 py-2.5 text-sm font-bold text-white"
@@ -1679,7 +1679,7 @@ export default function CabPage() {
         <AnimatePresence>
           {deviationAlert && (
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="absolute top-0 left-0 right-0 z-1050">
+              className="absolute top-0 left-0 right-0 z-[1050]">
               <motion.div animate={{ opacity: [0.9, 1, 0.9] }} transition={{ repeat: Infinity, duration: 1.2 }}
                 className="flex items-center justify-center gap-3 px-6 py-3 text-sm font-bold text-white"
                 style={{ background: "linear-gradient(90deg,#991b1b,#dc2626,#991b1b)", boxShadow: "0 4px 24px rgba(220,38,38,0.6)" }}>
@@ -1697,7 +1697,7 @@ export default function CabPage() {
           {relayPhase !== "idle" && (
             <motion.div
               initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className={`absolute left-0 right-0 z-1049 ${deviationAlert && !isOnline ? "top-24" : deviationAlert ? "top-12" : !isOnline ? "top-10" : "top-0"}`}>
+              className={`absolute left-0 right-0 z-[1049] ${deviationAlert && !isOnline ? "top-24" : deviationAlert ? "top-12" : !isOnline ? "top-10" : "top-0"}`}>
               <motion.div
                 animate={{ opacity: [0.88, 1, 0.88] }} transition={{ repeat: Infinity, duration: 1.6 }}
                 className="flex items-center justify-center gap-3 px-6 py-2.5 text-sm font-bold text-white"
@@ -1717,7 +1717,7 @@ export default function CabPage() {
         <AnimatePresence>
           {transmitStatus === "transmitting" && (
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="absolute top-0 left-0 right-0 z-1049">
+              className="absolute top-0 left-0 right-0 z-[1049]">
               <div className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold text-white"
                 style={{ background: "linear-gradient(90deg,#065f46,#10b981,#065f46)", boxShadow: "0 4px 20px rgba(16,185,129,0.5)" }}>
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1727,7 +1727,7 @@ export default function CabPage() {
           )}
           {transmitStatus === "transmitted" && (
             <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="absolute top-0 left-0 right-0 z-1049">
+              className="absolute top-0 left-0 right-0 z-[1049]">
               <div className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold text-white"
                 style={{ background: "linear-gradient(90deg,#065f46,#10b981,#065f46)", boxShadow: "0 4px 20px rgba(16,185,129,0.5)" }}>
                 <Wifi className="w-4 h-4" />
@@ -1738,7 +1738,7 @@ export default function CabPage() {
         </AnimatePresence>
 
         {/* Search bar */}
-        <div className={`absolute left-4 right-4 z-1000 flex gap-2 flex-col sm:flex-row transition-all duration-300 ${deviationAlert ? "top-14" : "top-4"}`}>
+        <div className={`absolute left-4 right-4 z-[1000] flex gap-2 flex-col sm:flex-row transition-all duration-300 ${deviationAlert ? "top-14" : "top-4"}`}>
           <div className="relative flex-1">
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -1782,7 +1782,7 @@ export default function CabPage() {
         <AnimatePresence>
           {awaitingDest && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-              className="absolute bottom-36 left-1/2 -translate-x-1/2 z-1000 flex items-center gap-2 px-5 py-3 rounded-xl bg-[#18181B]/95 backdrop-blur-md border border-[#7C3AED]/50 text-white text-sm font-medium shadow-xl whitespace-nowrap">
+              className="absolute bottom-36 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 px-5 py-3 rounded-xl bg-[#18181B]/95 backdrop-blur-md border border-[#7C3AED]/50 text-white text-sm font-medium shadow-xl whitespace-nowrap">
               <MapPin className="w-4 h-4 text-[#7C3AED]" />
               Click anywhere on the map to set your destination
               <button onClick={() => setAwaitingDest(false)} className="ml-2 text-[#A1A1AA] hover:text-white text-xs">✕</button>
@@ -1791,7 +1791,7 @@ export default function CabPage() {
         </AnimatePresence>
 
         {/* Status badges */}
-        <div className={`absolute left-1/2 -translate-x-1/2 z-1000 flex items-center gap-2 flex-wrap justify-center transition-all ${deviationAlert ? "top-24" : "top-20"}`}>
+        <div className={`absolute left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-2 flex-wrap justify-center transition-all ${deviationAlert ? "top-24" : "top-20"}`}>
           <AnimatePresence mode="wait">
             {isAlert ? (
               <motion.div key="alert" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
@@ -1936,7 +1936,7 @@ export default function CabPage() {
         </div>
 
         {/* Right-side controls */}
-        <div className={`absolute right-4 z-1000 flex flex-col gap-2 transition-all ${deviationAlert ? "top-24" : "top-20"}`}>
+        <div className={`absolute right-4 z-[1000] flex flex-col gap-2 transition-all ${deviationAlert ? "top-24" : "top-20"}`}>
           <button onClick={handleToggleSim}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-xl transition-all whitespace-nowrap ${simMode ? "bg-[#2563EB] text-white" : "bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/10"}`}
             style={simMode ? { boxShadow: "0 0 18px rgba(37,99,235,0.45)" } : {}}>
@@ -2128,7 +2128,7 @@ export default function CabPage() {
         <AnimatePresence>
           {error && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="absolute bottom-32 left-4 right-4 z-1000 flex items-center gap-3 p-4 rounded-xl bg-red-500/20 backdrop-blur-md border border-red-500/30 text-red-400 shadow-xl">
+              className="absolute bottom-32 left-4 right-4 z-[1000] flex items-center gap-3 p-4 rounded-xl bg-red-500/20 backdrop-blur-md border border-red-500/30 text-red-400 shadow-xl">
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <p className="text-sm flex-1">{error}</p>
               <button onClick={() => setError(null)} className="text-red-400 hover:text-white text-xs">✕</button>
@@ -2141,7 +2141,7 @@ export default function CabPage() {
           {relayPhase !== "idle" && (
             <motion.div
               initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
-              className="absolute bottom-32 left-4 z-1000 w-56 rounded-xl overflow-hidden shadow-2xl"
+              className="absolute bottom-32 left-4 z-[1000] w-56 rounded-xl overflow-hidden shadow-2xl"
               style={{ border: "1px solid rgba(59,130,246,0.4)", background: "rgba(15,23,42,0.92)", backdropFilter: "blur(12px)" }}>
               <div className="px-4 py-2.5 flex items-center gap-2 border-b border-blue-500/20"
                 style={{ background: "linear-gradient(90deg,rgba(37,99,235,0.2),transparent)" }}>
@@ -2203,7 +2203,7 @@ export default function CabPage() {
           {isRunning && (
             <motion.div
               initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
-              className="absolute bottom-52 right-4 z-1000 w-48 rounded-2xl overflow-hidden shadow-2xl"
+              className="absolute bottom-52 right-4 z-[1000] w-48 rounded-2xl overflow-hidden shadow-2xl"
               style={{ background: "rgba(18,18,22,0.92)", backdropFilter: "blur(14px)", border: `1px solid ${riskColor}40` }}>
               {/* Header */}
               <div className="flex items-center justify-between px-4 pt-3 pb-1">
@@ -2269,7 +2269,7 @@ export default function CabPage() {
         <AnimatePresence>
           {trip && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="absolute bottom-24 left-4 z-1000 px-3 py-1.5 rounded-lg bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] text-xs font-mono shadow-xl">
+              className="absolute bottom-24 left-4 z-[1000] px-3 py-1.5 rounded-lg bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] text-xs font-mono shadow-xl">
               {trip.tripId} · {trip.path.length} pts
             </motion.div>
           )}
@@ -2280,7 +2280,7 @@ export default function CabPage() {
           {isRunning && (
             <motion.div
               initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-1000 flex items-center gap-3">
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3">
 
               {/* Pause / Continue */}
               <button
@@ -2326,7 +2326,7 @@ export default function CabPage() {
               key={bookingStep}
               initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 28, stiffness: 260 }}
-              className="absolute bottom-0 left-0 right-0 z-1010 rounded-t-3xl overflow-hidden"
+              className="absolute bottom-0 left-0 right-0 z-[1010] rounded-t-3xl overflow-hidden"
               style={{ background: "rgba(10,10,15,0.97)", backdropFilter: "blur(24px)", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
 
               {/* Drag handle */}

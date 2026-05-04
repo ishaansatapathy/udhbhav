@@ -120,13 +120,13 @@ export default function HomePage() {
   ))
 
   return (
-    <div className="min-h-screen relative overflow-x-hidden noise-overlay" style={{ background: "#000" }}>
+    <div className="relative min-h-svh overflow-x-hidden noise-overlay" style={{ background: "#000" }}>
 
       {/* ── Premium Tactical Navbar ── */}
       <TacticalNav />
 
       {/* ══════════════════ HERO ══════════════════ */}
-      <section className="relative h-screen w-full overflow-hidden"
+      <section className="relative h-svh w-full overflow-hidden"
         style={{ background: "#0a0a0e" }}>
 
         {/* ── BG video – Krishna chakra ── */}
@@ -186,10 +186,10 @@ export default function HomePage() {
         }} />
 
         {/* ── Content: anime.js managed entrance ── */}
-        <div ref={heroRef} className="absolute inset-0 flex items-center" style={{ zIndex: 50 }}>
-          <div className="w-full max-w-7xl mx-auto px-8 md:px-16">
+        <div ref={heroRef} className="absolute inset-0 flex items-center pt-16 md:pt-18" style={{ zIndex: 50 }}>
+          <div className="mx-auto w-full max-w-[1600px] px-6 md:px-10 lg:px-16">
             <div
-              className="max-w-155 select-none"
+              className="max-w-3xl select-none"
               style={{ transform: `translateY(${scrollY * 0.08}px)` }}>
 
               {/* Status badge — anime.js: .hero-badge */}
@@ -201,7 +201,7 @@ export default function HomePage() {
                 }}>
                 <span className="w-2 h-2 rounded-full bg-[#8b5cf6] pulse-dot" />
                 <span className="text-white/55 text-[10px] font-semibold tracking-[0.28em] uppercase">
-                  Digital Safety Infrastructure
+                  Autonomous Crisis Coordination Platform
                 </span>
               </div>
 
@@ -226,7 +226,7 @@ export default function HomePage() {
                   color: "rgba(255,255,255,0.45)",
                   opacity: 0,
                 }}>
-                Privacy-First Digital Safety Infrastructure
+                Multi-Agent Disaster Management System
               </p>
 
               {/* Brief description — anime.js: .hero-desc */}
@@ -239,9 +239,9 @@ export default function HomePage() {
                   maxWidth: "480px",
                   opacity: 0,
                 }}>
-                Protecting identities through cryptographic proof. Real-time ride monitoring,
-                tamper-proof emergency alerts, and offline-resilient communication — all without
-                storing a single byte of your personal data.
+                Simulate floods, earthquakes, fires, and SOS escalation with autonomous vehicle agents.
+                Real-time allocation, explainable negotiation, and adaptive reassignment under cascading
+                failures for high-pressure emergency response.
               </p>
 
               {/* Thin divider — anime.js: .hero-divider */}
@@ -259,11 +259,35 @@ export default function HomePage() {
               {/* CTA Buttons — anime.js: .hero-cta */}
               <div className="flex flex-row gap-3.5 items-center flex-wrap">
 
-                <Link to="/cab"
+                <Link to="/disaster?demo=1"
                   className="hero-cta btn-cta-violet px-8 py-3.5 font-semibold text-xs tracking-widest uppercase text-white flex items-center gap-2"
                   style={{ opacity: 0 }}>
                   <Sparkles className="w-3.5 h-3.5" />
-                  Launch Cab
+                  Agent Network
+                  <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                </Link>
+
+                <Link to="/disaster"
+                  className="hero-cta px-8 py-3.5 font-semibold text-xs tracking-widest uppercase flex items-center gap-2"
+                  style={{
+                    opacity: 0,
+                    background: "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(249,115,22,0.15))",
+                    border: "1px solid rgba(239,68,68,0.35)",
+                    borderRadius: "9999px",
+                    color: "#fca5a5",
+                    backdropFilter: "blur(8px)",
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = "linear-gradient(135deg, rgba(239,68,68,0.28), rgba(249,115,22,0.28))"
+                    e.currentTarget.style.color = "#ffffff"
+                    e.currentTarget.style.boxShadow = "0 0 20px rgba(239,68,68,0.3)"
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = "linear-gradient(135deg, rgba(239,68,68,0.15), rgba(249,115,22,0.15))"
+                    e.currentTarget.style.color = "#fca5a5"
+                    e.currentTarget.style.boxShadow = "none"
+                  }}>
+                  🛡️ Disaster Response
                   <ArrowRight className="w-3.5 h-3.5 ml-1" />
                 </Link>
 
@@ -285,17 +309,18 @@ export default function HomePage() {
                     e.currentTarget.style.boxShadow = "none"
                     e.currentTarget.style.background = "rgba(255,255,255,0.04)"
                   }}>
-                  Open Identity Vault
+                  Open Safety Stack
                 </Link>
               </div>
+
 
               {/* Stats row — anime.js: .hero-stat */}
               <div className="flex items-center gap-0 mt-9">
                 {[
-                  { value: "SHA-256", label: "Encryption" },
-                  { value: "0 bytes", label: "Data Stored" },
-                  { value: "E2E", label: "Client-Side" },
-                  { value: "RSA-PSS", label: "Signed Alerts" },
+                  { value: "30+", label: "Live Agents" },
+                  { value: "Realtime", label: "Socket Sync" },
+                  { value: "Top-3", label: "Negotiation Logic" },
+                  { value: "Adaptive", label: "Reallocation" },
                 ].map((s, i) => (
                   <div key={i} className="hero-stat flex flex-col gap-0.5 px-4 first:pl-0" 
                     style={{ 
@@ -311,10 +336,10 @@ export default function HomePage() {
               {/* Feature pills — anime.js: .hero-pill */}
               <div className="flex flex-wrap gap-2 mt-6">
                 {[
-                  "Zero-Knowledge Proof",
-                  "Geo-Fenced Routes",
-                  "Offline Relay",
-                  "Tamper-Proof Logs",
+                  "Disaster Simulation",
+                  "Women SOS Priority",
+                  "Industrial Twin Events",
+                  "Anomaly-to-Event Pipeline",
                 ].map((tag, i) => (
                   <span
                     key={i}
@@ -371,19 +396,19 @@ export default function HomePage() {
             <span className="anim-heading text-[#8b5cf6] text-[10px] font-bold tracking-[0.3em] uppercase" style={{ opacity: 0 }}>The Problem</span>
           </div>
           <h2 className="anim-heading text-4xl md:text-5xl font-bold text-white mb-5 leading-tight" style={{ opacity: 0 }}>
-            Privacy is broken<br />
-            <span className="gradient-text-violet">at the infrastructure level.</span>
+            Disaster response breaks down<br />
+            <span className="gradient-text-violet">at the coordination layer.</span>
           </h2>
           <p className="anim-desc text-white/35 text-base md:text-lg mb-16 max-w-xl leading-relaxed" style={{ opacity: 0 }}>
-            Traditional platforms store raw personal data in centralized servers. One breach exposes everyone.
-            Your identity shouldn't be a liability.
+            During floods, fires, and infrastructure failures, services operate in silos.
+            Manual coordination delays resource allocation and increases casualties.
           </p>
           <div className="grid md:grid-cols-2 gap-4">
             {[
-              { icon: Shield, title: "Raw Identity Storage", desc: "Platforms store unencrypted personal data in centralized servers. One server compromise = millions exposed.", accent: "#ef4444" },
-              { icon: AlertTriangle, title: "Centralized Data Leaks", desc: "Central points of failure mean one hack compromises entire user bases. No cryptographic verification.", accent: "#f59e0b" },
-              { icon: MapPin, title: "Ride-Sharing Safety Gaps", desc: "Vulnerable users face risks with limited real-time route monitoring and no tamper-proof alerting.", accent: "#8b5cf6" },
-              { icon: Radio, title: "Emergency Connectivity Gaps", desc: "Internet outages during disasters cut off the very systems meant to save lives. No offline fallback.", accent: "#3b82f6" },
+              { icon: Shield, title: "Resource Shortages", desc: "Ambulances, police units, and mobile support are limited while demand spikes rapidly.", accent: "#ef4444" },
+              { icon: AlertTriangle, title: "Cascading Failures", desc: "Road blocks, utility disruptions, and panic conditions amplify emergency impact.", accent: "#f59e0b" },
+              { icon: MapPin, title: "Transport Breakdown", desc: "The right vehicle often cannot reach the right event in time due to route failure.", accent: "#8b5cf6" },
+              { icon: Radio, title: "Poor Inter-Service Coordination", desc: "Critical teams make fragmented decisions without a shared allocation engine.", accent: "#3b82f6" },
             ].map(({ icon: Icon, title, desc, accent }, i) => (
               <div key={i}
                 className="anim-card tactical-card rounded-2xl p-7 group"
@@ -406,10 +431,10 @@ export default function HomePage() {
           <div className="max-w-6xl mx-auto px-8 py-16">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               {[
-                { value: "2048-bit", label: "RSA Key Pairs", icon: Lock },
-                { value: "300m", label: "Geo-Fence Radius", icon: MapPin },
-                { value: "<2min", label: "Auto Escalation", icon: AlertTriangle },
-                { value: "100%", label: "Offline Capable", icon: Radio },
+                { value: "6", label: "Event Types", icon: Lock },
+                { value: "3", label: "Agent Classes", icon: MapPin },
+                { value: "<2s", label: "State Tick", icon: AlertTriangle },
+                { value: "Live", label: "Adaptive Reassign", icon: Radio },
               ].map(({ value, label, icon: Icon }, i) => (
                 <div key={i} className="anim-card flex flex-col items-center text-center py-6 px-4 rounded-2xl"
                   style={{
@@ -434,21 +459,22 @@ export default function HomePage() {
               <div className="inline-flex items-center gap-3 mb-5">
                 <div className="w-8 h-px bg-linear-to-r from-transparent to-[#8b5cf6]" />
                 <span className="anim-heading text-[#8b5cf6] text-[10px] font-bold tracking-[0.3em] uppercase" style={{ opacity: 0 }}>Our Solution</span>
-                <div className="w-8 h-px bg-gradient-to-l from-transparent to-[#8b5cf6]" />
+                <div className="w-8 h-px bg-linear-to-l from-transparent to-[#8b5cf6]" />
               </div>
               <h2 className="anim-heading text-4xl md:text-5xl font-bold text-white mb-4 leading-tight" style={{ opacity: 0 }}>
-                Three pillars of<br />
-                <span className="gradient-text-violet">privacy-first infrastructure.</span>
+                Three layers of<br />
+                <span className="gradient-text-violet">autonomous crisis response.</span>
               </h2>
               <p className="anim-desc text-white/30 text-base max-w-lg mx-auto leading-relaxed" style={{ opacity: 0 }}>
-                Built from the ground up with zero-knowledge principles, real-time monitoring, and cryptographic proof at every layer.
+                Built around multi-agent negotiation, real-time event orchestration, and explainable allocation under disruption.
               </p>
             </div>
-            <div className="grid md:grid-cols-3 gap-5">
+            <div className="grid md:grid-cols-4 gap-5">
               {[
-                { icon: Lock, to: "/wallet", title: "Cryptographic Identity Vault", desc: "Store only hashes — never raw IDs. Prove identity without exposing data. SHA-256 client-side hashing.", tag: "Zero Knowledge", color: "#8b5cf6" },
-                { icon: Car, to: "/cab", title: "GPS Smart Cab Monitoring", desc: "Real-time geo-fencing with 300m corridor. Deviation detection triggers RSA-signed emergency packets.", tag: "Real-Time", color: "#3b82f6" },
-                { icon: Radio, to: "/police", title: "Multi-Layer Emergency Relay", desc: "Internet + mesh fallbacks ensure alerts reach authorities. Tamper-proof trace chains for evidence.", tag: "Offline-First", color: "#10b981" },
+                { icon: Lock, to: "/disaster", title: "Agent Negotiation Engine", desc: "Suitability scoring, candidate ranking, and explainable winner selection.", tag: "Core Logic", color: "#8b5cf6" },
+                { icon: Car, to: "/cab", title: "Mobile Resource Layer", desc: "Ambulance, police, and cab agents with live state and adaptive reassignment.", tag: "Real-Time", color: "#3b82f6" },
+                { icon: Radio, to: "/police", title: "Coordination Command Feed", desc: "Shared operational visibility for responders through live mission telemetry.", tag: "Unified View", color: "#10b981" },
+                { icon: AlertTriangle, to: "/disaster", title: "Crisis Simulation Console", desc: "Flood, earthquake, fire, mine, chemical, and women SOS scenario control.", tag: "Hackathon Demo", color: "#f97316" },
               ].map(({ icon: Icon, to, title, desc, tag, color }, i) => (
                 <div key={i} className="anim-card" style={{ opacity: 0 }}>
                   <Link to={to} className="block tactical-card rounded-2xl p-7 group h-full relative">
@@ -462,7 +488,7 @@ export default function HomePage() {
                         <Icon className="w-5.5 h-5.5" style={{ color }} />
                       </div>
                       <span className="text-[9px] font-bold tracking-[0.2em] uppercase px-2.5 py-1 rounded-full"
-                        style={{ color, background: `${color}12`, border: `1px solid ${color}25` }}>
+                        style={{ color, background: `${color}12`, border: `1px solid ${color}25`, whiteSpace: "nowrap" }}>
                         {tag}
                       </span>
                     </div>
@@ -485,10 +511,10 @@ export default function HomePage() {
           <div className="max-w-4xl mx-auto text-center">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { icon: CheckCircle2, text: "No Third-Party APIs" },
-                { icon: Lock, text: "Client-Side Only" },
-                { icon: Shield, text: "Open Source Stack" },
-                { icon: Sparkles, text: "Military-Grade Crypto" },
+                { icon: CheckCircle2, text: "Explainable Decisions" },
+                { icon: Lock, text: "Rule-Based Agents" },
+                { icon: Shield, text: "Synthetic + Real Data" },
+                { icon: Sparkles, text: "Demo-Ready Workflows" },
               ].map(({ icon: Icon, text }, i) => (
                 <div key={i} className="anim-card flex items-center gap-2.5 justify-center py-4 px-3 rounded-xl"
                   style={{ opacity: 0, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
@@ -505,7 +531,7 @@ export default function HomePage() {
         <div className="px-8 py-12 flex items-center justify-between max-w-6xl mx-auto">
           <div className="flex items-center gap-3">
             <div className="w-1.5 h-1.5 rounded-full bg-[#8b5cf6] pulse-dot" />
-            <span ref={footerBrandRef} className="text-white/15 text-xs tracking-widest uppercase">Saarthi · Privacy-First Safety</span>
+            <span ref={footerBrandRef} className="text-white/15 text-xs tracking-widest uppercase">Saarthi · Crisis Coordination Platform</span>
           </div>
           <span className="text-white/15 text-xs tracking-widest uppercase">Built for Hack-A-League</span>
         </div>

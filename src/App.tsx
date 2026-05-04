@@ -4,6 +4,7 @@ import WalletPage from "./pages/WalletPage"
 import CabPage from "./pages/CabPage"
 import PoliceDashboard from "./pages/PoliceDashboard"
 import PersonalEmergency from "./pages/PersonalEmergency"
+import DisasterDashboard from "./pages/DisasterDashboard"
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
         <Route path="/cab" element={<CabPage />} />
         <Route path="/police" element={<PoliceDashboard />} />
         <Route path="/emergency" element={<PersonalEmergency />} />
+        <Route path="/disaster" element={<DisasterDashboard />} />
       </Routes>
     </BrowserRouter>
   )

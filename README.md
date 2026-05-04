@@ -292,6 +292,22 @@ Import publicKey → verify signature
 
 ---
 
+## Crisis simulation dashboard (`/disaster`)
+
+Multi-agent dispatch sits beside a **power interconnect + negotiation transcript + mesh-style comms** stack for judge demos.
+
+**Research overlay (privacy-safe):** `model/crime_dataset_india.csv` is aggregated **by city label only**. The `/api/crime-hotspots` endpoint returns counts + approximate city centroids (with light UI jitter so rings don’t stack). It is **not** live police telemetry and **does not** expose victim-level rows in the API. Each response also includes `topDomainsNational`: synthetic **crime-domain** totals (taxonomy only, no geography).
+
+### Testing (smoke)
+
+```bash
+npm run test:server
+```
+
+Runs Node’s built-in test runner on `server/test/*.test.js` (mesh comms + crime aggregation).
+
+---
+
 ## Team
 
 Built for **Hack-A-League** hackathon.
