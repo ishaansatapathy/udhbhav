@@ -296,7 +296,7 @@ export default function PoliceDashboard() {
     <div className="min-h-screen bg-gray-900 text-green-400 font-mono select-none">
       <div className="bg-black border-b border-green-500 px-4 py-3 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold tracking-widest text-green-400">▸ SAHAYAK POLICE PORTAL</h1>
+          <h1 className="text-xl font-bold tracking-widest text-green-400">▸ Saarthi POLICE PORTAL</h1>
           <p className="text-green-600 text-xs tracking-wider">TACTICAL COMMAND &amp; CONTROL SYSTEM</p>
         </div>
         <div className="flex items-center gap-6">

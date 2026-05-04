@@ -138,6 +138,28 @@
   }
 }
 
+/* Radar SVG ring rotations */
+@keyframes spinCW  { to { transform: rotate(360deg);  } }
+@keyframes spinCCW { to { transform: rotate(-360deg); } }
+
+/* Glow pulse synced with chakra spin */
+@keyframes chakraPulse {
+  0%,100% { opacity: 0.55; }
+  50%     { opacity: 0.85; }
+}
+
+/* Energy core behind video – scale + opacity breathe */
+@keyframes coreGlow {
+  0%,100% { opacity: 0.70; scale: 0.96; }
+  50%     { opacity: 1.00; scale: 1.04; }
+}
+
+/* Focal point inner pulse */
+@keyframes focalPulse {
+  0%,100% { opacity: 0.50; box-shadow: 0 0 12px 4px rgba(255,255,255,0.12); }
+  50%     { opacity: 0.85; box-shadow: 0 0 22px 8px rgba(255,255,255,0.22), 0 0 40px 16px rgba(139,92,246,0.18); }
+}
+
 /* Police jurisdiction – animated dash on connection polyline */
 @keyframes policeDash {
   to { stroke-dashoffset: -16; }

@@ -1,5 +1,5 @@
 /**
- * Cryptographic utilities for Sahayak emergency packet signing.
+ * Cryptographic utilities for Saarthi emergency packet signing.
  * Uses the browser-native Web Crypto API exclusively (SubtleCrypto).
  *
  * Algorithm: RSA-PSS with SHA-256

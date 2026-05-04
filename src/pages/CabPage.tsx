@@ -43,8 +43,9 @@ interface NominatimResult {
 
 interface VehicleOption {
   id: string; name: string; icon: string | null; img: string | null
-  fareMin: number; fareMax: number; fare: number
+  baseFare: number; perKm: number; fare: number
   eta: number; safetyScore: number; model: string
+  distanceKm: number; durationMin: number
 }
 
 interface DriverDetails {
@@ -58,7 +59,8 @@ interface PoliceNode {
   id: string
   lat: number
   lng: number
-  engagementRadius: number // metres
+  segmentStart: number // route waypoint index (inclusive)
+  segmentEnd: number   // route waypoint index (inclusive)
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -78,10 +80,10 @@ const RISK_CAP_PER_TICK  = 30   // max score increase in a single tick
 // ── Booking catalog ─────────────────────────────────────────────────────────
 
 const VEHICLE_CATALOG = [
-  { id: "mini",    name: "Mini",    icon: null,         img: "/mini.png",   fareMin: 80,  fareMax: 150, model: "Maruti Alto / WagonR" },
-  { id: "sedan",   name: "Sedan",   icon: null,         img: "/sedan.png",  fareMin: 120, fareMax: 200, model: "Honda City / Dzire"   },
-  { id: "suv",     name: "SUV",     icon: null,         img: "/suv.png",    fareMin: 180, fareMax: 280, model: "Innova Crysta"        },
-  { id: "premium", name: "Premium", icon: null,         img: "/premium.png", fareMin: 280, fareMax: 450, model: "Tesla Model 3"        },
+  { id: "mini",    name: "Mini",    icon: null, img: "/mini.png",    baseFare: 40,  perKm: 10, model: "Maruti Alto / WagonR" },
+  { id: "sedan",   name: "Sedan",   icon: null, img: "/sedan.png",   baseFare: 60,  perKm: 14, model: "Honda City / Dzire"   },
+  { id: "suv",     name: "SUV",     icon: null, img: "/suv.png",     baseFare: 80,  perKm: 18, model: "Innova Crysta"        },
+  { id: "premium", name: "Premium", icon: null, img: "/premium.png", baseFare: 120, perKm: 25, model: "Tesla Model 3"        },
 ]
 const DRIVER_POOL = [
   { name: "Ravi Kumar",   initials: "RK" },
@@ -92,13 +94,48 @@ const DRIVER_POOL = [
 ]
 const PLATES = ["MH 12 AB 4567", "KA 09 CD 8901", "DL 7C 2345 JK", "TN 22 EF 7890"]
 
-function makeVehicleOptions(): VehicleOption[] {
-  return VEHICLE_CATALOG.map(v => ({
-    ...v,
-    fare:        Math.floor(v.fareMin + Math.random() * (v.fareMax - v.fareMin)),
-    eta:         2 + Math.floor(Math.random() * 7),
-    safetyScore: 75 + Math.floor(Math.random() * 21),
-  }))
+/** Fare = base + distance × perKm rate, rounded to nearest ₹5. */
+function calcFare(baseFare: number, perKm: number, distanceKm: number): number {
+  return Math.round((baseFare + distanceKm * perKm) / 5) * 5
+}
+
+/**
+ * Safety score: starts at 92, adjusted for night driving and route length.
+ * Clamped to 75–95, ±2 random variance for realism.
+ */
+function calcSafetyScore(distanceKm: number): number {
+  const hour     = new Date().getHours()
+  const isNight  = hour >= 21 || hour < 6
+  const longRoute = distanceKm > 15
+  let score = 92
+  if (isNight)   score -= 7
+  if (longRoute) score -= 3
+  score += Math.round((Math.random() - 0.5) * 4)
+  return Math.max(75, Math.min(95, score))
+}
+
+/**
+ * Build vehicle options from route data.
+ * If distanceKm is 0 (destination not yet selected / OSRM unavailable), fares are zero.
+ */
+function makeVehicleOptions(distanceKm = 0, durationMin = 0): VehicleOption[] {
+  const safetyBase = calcSafetyScore(distanceKm)
+  return VEHICLE_CATALOG.map((v, i) => {
+    const fare = distanceKm > 0 ? calcFare(v.baseFare, v.perKm, distanceKm) : 0
+    // ETA = route duration + small per-vehicle variation + 2-min pickup time
+    const etaVariation = [-1, 0, 1, 2][i]
+    const eta = durationMin > 0
+      ? Math.max(1, Math.round(durationMin + etaVariation + 2))
+      : 2 + i * 2
+    return {
+      ...v,
+      fare,
+      eta,
+      safetyScore: Math.max(75, Math.min(95, safetyBase - i)),   // premium slightly safer
+      distanceKm,
+      durationMin,
+    }
+  })
 }
 
 function makeDriver(v: VehicleOption): DriverDetails {
@@ -116,9 +153,9 @@ function makeDriver(v: VehicleOption): DriverDetails {
 
 const makeTripId = () => "TRIP" + Date.now()
 
-const saveTrip = (t: Trip) => localStorage.setItem("sahayak_trip", JSON.stringify(t))
+const saveTrip = (t: Trip) => localStorage.setItem("Saarthi_trip", JSON.stringify(t))
 const loadTrip = (): Trip | null => {
-  try { const r = localStorage.getItem("sahayak_trip"); return r ? JSON.parse(r) : null } catch { return null }
+  try { const r = localStorage.getItem("Saarthi_trip"); return r ? JSON.parse(r) : null } catch { return null }
 }
 
 const geoErrorMsg = (code: number) => ({
@@ -127,18 +164,41 @@ const geoErrorMsg = (code: number) => ({
   3: "Location timed out — check your network or OS location settings.",
 }[code] ?? "Could not get location.")
 
-/** Generate 6 police nodes scattered around a given centre point. */
-function generatePoliceNodes(centre: Coord): PoliceNode[] {
-  const angles  = [0, 60, 120, 180, 240, 300]
-  const radii   = [0.025, 0.035, 0.03, 0.04, 0.028, 0.033] // ~3-4 km offset
-  const engage  = [3500, 4000, 3000, 4500, 3800, 3200]       // engagement radius (m)
-  return angles.map((angle, i) => {
-    const rad = (angle * Math.PI) / 180
+/**
+ * Evenly divide routeCoords into NUM_NODES segments.
+ * Each node is placed at the segment midpoint, offset perpendicularly from the route
+ * direction so it sits visibly beside the road line (alternating left/right).
+ */
+function generatePoliceNodesFromRoute(routeCoords: Coord[]): PoliceNode[] {
+  const total = routeCoords.length
+  const NUM_NODES = 5
+  if (total < NUM_NODES) return []
+
+  const segSize = Math.floor(total / NUM_NODES)
+
+  return Array.from({ length: NUM_NODES }, (_, i) => {
+    const segStart = i * segSize
+    const segEnd   = i === NUM_NODES - 1 ? total - 1 : (i + 1) * segSize - 1
+    const midIdx   = Math.floor((segStart + segEnd) / 2)
+    const coord    = routeCoords[midIdx]
+
+    // Local route direction at this point (use ±3 neighbours for stability)
+    const pIdx = Math.max(0, midIdx - 3)
+    const nIdx = Math.min(total - 1, midIdx + 3)
+    const dlat = routeCoords[nIdx].lat - routeCoords[pIdx].lat
+    const dlng = routeCoords[nIdx].lng - routeCoords[pIdx].lng
+    const mag  = Math.sqrt(dlat * dlat + dlng * dlng) || 1e-9
+
+    // Perpendicular unit vector (rotate 90°), alternate side per node
+    const side = i % 2 === 0 ? 1 : -1
+    const OFFSET = 0.004 // ~400 m in degrees
+
     return {
-      id: String.fromCharCode(65 + i),
-      lat: centre.lat + Math.sin(rad) * radii[i],
-      lng: centre.lng + Math.cos(rad) * radii[i],
-      engagementRadius: engage[i],
+      id:           String.fromCharCode(65 + i), // A–E
+      lat:          coord.lat + (-dlng / mag) * OFFSET * side,
+      lng:          coord.lng + ( dlat / mag) * OFFSET * side,
+      segmentStart: segStart,
+      segmentEnd:   segEnd,
     }
   })
 }
@@ -153,22 +213,32 @@ function isInsideCorridor(polygon: Feature<Polygon>, lat: number, lng: number): 
   return turf.booleanPointInPolygon(turf.point([lng, lat]), polygon)
 }
 
-/** Fetch a real driving route from the free OSRM demo server. Returns ordered [lat,lng] waypoints. */
-async function fetchOsrmRoute(start: Coord, dest: Coord): Promise<Coord[]> {
+interface OsrmResult {
+  coords:      Coord[]
+  distanceKm:  number   // total driving distance
+  durationMin: number   // estimated driving time (minutes)
+}
+
+/** Fetch a real driving route from the free OSRM demo server. */
+async function fetchOsrmRoute(start: Coord, dest: Coord): Promise<OsrmResult> {
+  const empty: OsrmResult = { coords: [], distanceKm: 0, durationMin: 0 }
   try {
     const url =
       `https://router.project-osrm.org/route/v1/driving/` +
       `${start.lng},${start.lat};${dest.lng},${dest.lat}` +
       `?overview=full&geometries=geojson`
     const res  = await fetch(url, { signal: AbortSignal.timeout(8000) })
-    if (!res.ok) return []
+    if (!res.ok) return empty
     const data = await res.json()
-    if (data.code !== "Ok" || !data.routes?.[0]) return []
-    return (data.routes[0].geometry.coordinates as [number, number][]).map(
-      ([lng, lat]) => ({ lat, lng })
-    )
+    if (data.code !== "Ok" || !data.routes?.[0]) return empty
+    const route = data.routes[0]
+    return {
+      coords:      (route.geometry.coordinates as [number, number][]).map(([lng, lat]) => ({ lat, lng })),
+      distanceKm:  route.distance / 1000,
+      durationMin: route.duration / 60,
+    }
   } catch {
-    return []
+    return empty
   }
 }
 
@@ -194,6 +264,8 @@ export default function CabPage() {
   const [demoOffline, setDemoOffline]       = useState(false)
   const [routeCoords, setRouteCoords]       = useState<Coord[]>([])
   const [fetchingRoute, setFetchingRoute]   = useState(false)
+  const [routeDistanceKm, setRouteDistanceKm]   = useState(0)
+  const [routeDurationMin, setRouteDurationMin] = useState(0)
 
   // ── Booking state ────────────────────────────────────────────────────────
   const [bookingStep, setBookingStep]         = useState<BookingStep>(() => {
@@ -309,7 +381,7 @@ export default function CabPage() {
     setRelayPhase("scanning")
     relayPhaseRef.current = "scanning"
 
-    // Generate 1–3 nearby virtual Sahayak Nodes
+    // Generate 1–3 nearby virtual Saarthi Nodes
     const count = 1 + Math.floor(Math.random() * 3)
     const nodes: RelayNode[] = Array.from({ length: count }, (_, i) => ({
       id: `SN-${String(i + 1).padStart(2, "0")}`,
@@ -329,7 +401,7 @@ export default function CabPage() {
             radius: 9, fillColor: "#3b82f6", color: "#93c5fd",
             weight: 2.5, fillOpacity: 0.85, pane: "markerPane",
           })
-            .bindTooltip(`⚡ Sahayak Node ${node.id}`, { permanent: false, direction: "top" })
+            .bindTooltip(`⚡ Saarthi Node ${node.id}`, { permanent: false, direction: "top" })
             .addTo(relayLayerRef.current)
 
           // Animated dashed connection line: user → node
@@ -550,7 +622,7 @@ export default function CabPage() {
     let cancelled = false
     setFetchingRoute(true)
 
-    fetchOsrmRoute(start, destination).then(coords => {
+    fetchOsrmRoute(start, destination).then(({ coords, distanceKm, durationMin }) => {
       if (cancelled) return
       setFetchingRoute(false)
       if (coords.length >= 2) {
@@ -564,9 +636,16 @@ export default function CabPage() {
         simRouteIdxRef.current = nearest
         routeCoordsRef.current = coords
         setRouteCoords(coords)
+        setRouteDistanceKm(distanceKm)
+        setRouteDurationMin(durationMin)
+        // Recalculate fares now that we have real route data
+        setVehicleOptions(makeVehicleOptions(distanceKm, durationMin))
+        // Place jurisdiction nodes along the real road route
+        drawPoliceNodes(generatePoliceNodesFromRoute(coords))
       } else {
-        // OSRM unavailable — keep straight-line fallback silently
+        // OSRM unavailable — keep straight-line fallback, show minimum fares
         setFetchingRoute(false)
+        setVehicleOptions(makeVehicleOptions(0, 0))
       }
     })
 
@@ -731,7 +810,8 @@ export default function CabPage() {
 
     // Police jurisdiction check on every movement tick
     updatePoliceJurisdiction(lat, lng)
-  }, [placeMarker, appendToPolyline, startRelaySimulation, updatePoliceJurisdiction])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeMarker, appendToPolyline, startRelaySimulation])
 
   // ── GPS helpers ───────────────────────────────────────────────────────────
 
@@ -751,33 +831,47 @@ export default function CabPage() {
   const handleLocate = async () => {
     setLocating(true); setError(null)
 
-    if (simIntervalRef.current !== null && !tripRef.current) {
+    // Always stop simulation when user explicitly requests real GPS location
+    if (simIntervalRef.current !== null) {
       clearInterval(simIntervalRef.current)
       simIntervalRef.current = null
       setSimActive(false)
     }
+    // Turn off simulation mode so GPS is not overridden on next tick
+    setSimMode(false)
 
+    // Guard: no duplicate watchPosition — handled by startWatch's own guard
     try {
       const pos = await getPosition()
       const { latitude: lat, longitude: lng, accuracy } = pos.coords
 
       placeMarker(lat, lng, "Your Location")
       simPosRef.current = { lat, lng }
-      mapInstanceRef.current?.flyTo([lat, lng], 16, { animate: true, duration: 1.5 })
 
+      // Use setView for immediate, reliable centering (no animation lag)
+      mapInstanceRef.current?.setView([lat, lng], 15)
+
+      // Update accuracy circle (reuse or create)
       if (accuracy && mapInstanceRef.current) {
         if (accuracyCircleRef.current) {
           accuracyCircleRef.current.setLatLng([lat, lng])
           accuracyCircleRef.current.setRadius(accuracy)
         } else {
           accuracyCircleRef.current = L.circle([lat, lng], {
-            radius: accuracy, color: "#7C3AED", fillColor: "#7C3AED", fillOpacity: 0.07, weight: 1,
+            radius: accuracy, color: "#7C3AED", fillColor: "#7C3AED",
+            fillOpacity: 0.07, weight: 1,
           }).addTo(mapInstanceRef.current)
         }
       }
     } catch (e: unknown) {
       const code = (e as GeolocationPositionError).code ?? 0
-      setError(code ? geoErrorMsg(code) : "Location unavailable.")
+      setError(
+        code === 1
+          ? "Location permission required — allow location in your browser settings."
+          : code
+          ? geoErrorMsg(code)
+          : "Location unavailable."
+      )
     } finally { setLocating(false) }
   }
 
@@ -879,6 +973,7 @@ export default function CabPage() {
     if (policePulseIntervalRef.current) { clearInterval(policePulseIntervalRef.current); policePulseIntervalRef.current = null }
     if (policeLineRef.current) { policeLineRef.current.remove(); policeLineRef.current = null }
     policeMarkersRef.current.forEach(m => m.remove()); policeMarkersRef.current.clear()
+    // policeCirclesRef is retained for map cleanup but no circles are created in progress mode
     policeCirclesRef.current.forEach(c => c.remove()); policeCirclesRef.current.clear()
     policeNodesRef.current = []
     activePoliceNodeIdRef.current = null
@@ -892,85 +987,91 @@ export default function CabPage() {
     policeNodesRef.current = nodes
 
     nodes.forEach(node => {
-      // Engagement radius circle (low opacity red fill)
-      const circle = L.circle([node.lat, node.lng], {
-        radius: node.engagementRadius,
-        color: "#dc2626", weight: 1, opacity: 0.35,
-        fillColor: "#dc2626", fillOpacity: 0.07,
-        interactive: false,
-      }).addTo(map)
-      policeCirclesRef.current.set(node.id, circle)
-
-      // Node dot marker
+      // No radius circles — zones are progress-based, not spatial
+      // Inactive node: dim grey-red dot
       const marker = L.circleMarker([node.lat, node.lng], {
-        radius: 7, fillColor: "#dc2626", color: "#fff", weight: 1.5,
-        fillOpacity: 0.85, interactive: true,
-      }).bindTooltip(`Police Node ${node.id}`, { direction: "top", className: "police-tooltip" })
+        radius: 7, fillColor: "#7f1d1d", color: "#ef4444", weight: 1.5,
+        fillOpacity: 0.45, opacity: 0.5, interactive: true,
+      }).bindTooltip(`Sector ${node.id}`, { direction: "top", className: "police-tooltip" })
         .addTo(map)
       policeMarkersRef.current.set(node.id, marker)
     })
   }, [clearPoliceNodes])
 
-  /** Activate / deactivate nodes and draw animated connection line to car. */
+  /**
+   * Segment-based jurisdiction:
+   *   – Match current routeIdx to the node whose segmentStart/segmentEnd contains it.
+   *   – On node change: dim old, pulse new, recreate connection line.
+   *   – On same node:  reuse existing line via setLatLngs (no flicker, animation persists).
+   */
   const updatePoliceJurisdiction = useCallback((carLat: number, carLng: number) => {
     const nodes = policeNodesRef.current
     if (!nodes.length) return
     const map = mapInstanceRef.current
     if (!map) return
 
-    // Find nearest node within engagement radius
-    let nearest: PoliceNode | null = null
-    let nearestDist = Infinity
-    for (const node of nodes) {
-      const d = turf.distance([carLng, carLat], [node.lng, node.lat], { units: "meters" })
-      if (d <= node.engagementRadius && d < nearestDist) {
-        nearestDist = d
-        nearest = node
-      }
-    }
-    const newActiveId = nearest?.id ?? null
+    // Find which segment the car is currently in
+    const routeIdx    = simRouteIdxRef.current
+    const activeNode  = nodes.find(n => routeIdx >= n.segmentStart && routeIdx <= n.segmentEnd)
+                     ?? nodes[nodes.length - 1] // clamp to last node past end
+    const newActiveId = activeNode.id
 
+    // ── Node switch ──────────────────────────────────────────────────────────
     if (newActiveId !== activePoliceNodeIdRef.current) {
       const oldId = activePoliceNodeIdRef.current
 
-      // Deactivate old marker
+      // Dim previously active
       if (oldId) {
-        if (policePulseIntervalRef.current) { clearInterval(policePulseIntervalRef.current); policePulseIntervalRef.current = null }
+        if (policePulseIntervalRef.current) {
+          clearInterval(policePulseIntervalRef.current)
+          policePulseIntervalRef.current = null
+        }
         policeMarkersRef.current.get(oldId)?.setStyle({
-          radius: 7, fillColor: "#dc2626", color: "#fff", weight: 1.5, fillOpacity: 0.85,
+          radius: 7, fillColor: "#7f1d1d", color: "#ef4444",
+          weight: 1.5, fillOpacity: 0.4, opacity: 0.45,
         })
       }
 
-      // Activate new marker with pulsing glow
-      if (newActiveId) {
-        const m = policeMarkersRef.current.get(newActiveId)
-        if (m) {
-          let big = false
-          m.setStyle({ radius: 10, fillColor: "#ef4444", color: "#fca5a5", weight: 2.5, fillOpacity: 1 })
-          policePulseIntervalRef.current = setInterval(() => {
-            big = !big
-            m.setStyle({ radius: big ? 13 : 10, fillOpacity: big ? 0.7 : 1 })
-          }, 550)
-        }
+      // Activate + pulse new node
+      const m = policeMarkersRef.current.get(newActiveId)
+      if (m) {
+        m.setStyle({ radius: 10, fillColor: "#ef4444", color: "#fca5a5", weight: 2.5, fillOpacity: 1, opacity: 1 })
+        let big = false
+        policePulseIntervalRef.current = setInterval(() => {
+          big = !big
+          m.setStyle({ radius: big ? 14 : 10, fillOpacity: big ? 0.6 : 1 })
+        }, 500)
       }
 
       activePoliceNodeIdRef.current = newActiveId
       setActivePoliceNodeId(newActiveId)
+
+      // Node changed → tear down old line so we build a fresh one below
+      if (policeLineRef.current) { policeLineRef.current.remove(); policeLineRef.current = null }
     }
 
-    // Update (or remove) the animated connection polyline every tick
-    if (policeLineRef.current) { policeLineRef.current.remove(); policeLineRef.current = null }
-    if (newActiveId && nearest) {
-      const line = L.polyline(
-        [[nearest.lat, nearest.lng], [carLat, carLng]],
-        { color: "#ef4444", weight: 2, dashArray: "6 10", opacity: 0.75 }
-      ).addTo(map)
+    // ── Connection line ──────────────────────────────────────────────────────
+    const newLatLngs: L.LatLngTuple[] = [
+      [activeNode.lat, activeNode.lng],
+      [carLat, carLng],
+    ]
+
+    if (policeLineRef.current) {
+      // Reuse the same SVG element – just update its coordinates.
+      // setLatLngs mutates the <path d=""> attribute in-place, so the
+      // CSS policeDash animation on the element is preserved with no flicker.
+      policeLineRef.current.setLatLngs(newLatLngs)
+    } else {
+      // First time (or after node switch): create the polyline once
+      const line = L.polyline(newLatLngs, {
+        color: "#ef4444", weight: 2.5, dashArray: "6 10", opacity: 0.85,
+      }).addTo(map)
       policeLineRef.current = line
 
-      // Animate dash offset via the underlying SVG element
+      // Attach the CSS dash-animation to the underlying SVG path element
       requestAnimationFrame(() => {
         const el = (line as unknown as { _path?: SVGPathElement })._path
-        if (el) el.style.animation = "policeDash 0.9s linear infinite"
+        if (el) el.style.animation = "policeDash 0.85s linear infinite"
       })
     }
   }, [])
@@ -1019,10 +1120,6 @@ export default function CabPage() {
       setAwaitingDest(true)
 
       setBookingStep("riding")
-
-      // Draw police nodes around trip start
-      drawPoliceNodes(generatePoliceNodes({ lat, lng }))
-
       if (simMode) startSimulation(); else startWatch()
     } catch (e: unknown) {
       const code = (e as GeolocationPositionError).code ?? 0
@@ -1042,10 +1139,12 @@ export default function CabPage() {
     setDeviationAlert(false)
     setRiskScore(0)
     setRouteCoords([])
+    setRouteDistanceKm(0)
+    setRouteDurationMin(0)
     setBookingStep("select")
     setSelectedVehicle(null)
     setDriverDetails(null)
-    setVehicleOptions(makeVehicleOptions())
+    setVehicleOptions(makeVehicleOptions(0, 0))
     riskScoreRef.current   = 0
     timeOutsideRef.current = 0
     routeCoordsRef.current = []
@@ -1234,7 +1333,7 @@ export default function CabPage() {
 
       {/* Navbar */}
       <header className={`flex-shrink-0 z-[1100] px-6 py-4 flex items-center justify-between transition-all duration-300 ${navScrolled ? "bg-[#0B0B0F]/70 backdrop-blur-xl border-b border-white/5" : "bg-[#0B0B0F]/80 backdrop-blur-md"}`}>
-        <Link to="/" className="text-white font-bold text-lg tracking-tight">Sahayak</Link>
+        <Link to="/" className="text-white font-bold text-lg tracking-tight">Saarthi</Link>
         <nav className="flex items-center gap-8">
           <Link to="/wallet" className="text-[#A1A1AA] hover:text-white text-sm font-medium transition-colors">Wallet</Link>
           <span className="text-white text-sm font-medium">Cab</span>
@@ -1317,7 +1416,7 @@ export default function CabPage() {
                   <Network className="w-4 h-4" />
                 </motion.div>
                 {relayPhase === "scanning"   && "⚡ Network Unavailable — Switching to Relay Mode"}
-                {relayPhase === "connecting" && `⚡ Connecting via Sahayak Nodes… (${relayHops} hop${relayHops !== 1 ? "s" : ""})`}
+                {relayPhase === "connecting" && `⚡ Connecting via Saarthi Nodes… (${relayHops} hop${relayHops !== 1 ? "s" : ""})`}
                 {relayPhase === "queued"     && `📡 Emergency queued · ${relayHops} relay hop${relayHops !== 1 ? "s" : ""} — will transmit on reconnect`}
               </motion.div>
             </motion.div>
@@ -1526,13 +1625,13 @@ export default function CabPage() {
                         className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0"
                       />
                       <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
-                      Node {activePoliceNodeId} Engaged
+                      Node {activePoliceNodeId} Engaged – Sector Monitoring
                     </>
                   ) : (
                     <>
                       <div className="w-2 h-2 rounded-full bg-[#A1A1AA] flex-shrink-0" />
                       <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
-                      No Node in Range
+                      Awaiting Route
                     </>
                   )}
                 </motion.div>
@@ -1878,101 +1977,174 @@ export default function CabPage() {
               {/* ── STEP: select ── */}
               {bookingStep === "select" && (
                 <div>
+                  {/* Header */}
                   <div className="px-5 pt-2 pb-3">
                     <div className="flex items-center justify-between">
                       <div>
                         <h3 className="text-white font-bold text-base">Choose a ride</h3>
-                        <p className="text-[#A1A1AA] text-xs mt-0.5">Select vehicle type to continue</p>
+                        <p className="text-[#A1A1AA] text-xs mt-0.5">
+                          {!destination
+                            ? "Pin a destination to calculate fares"
+                            : fetchingRoute
+                            ? "Calculating route & fares…"
+                            : routeDistanceKm > 0
+                            ? `${routeDistanceKm.toFixed(1)} km · ~${Math.round(routeDurationMin)} min drive`
+                            : "Destination set — select a vehicle"}
+                        </p>
                       </div>
                       <Car className="w-5 h-5 text-[#7C3AED]" />
                     </div>
                   </div>
 
-                  {/* Vehicle cards 2×2 */}
-                  <div className="px-4 grid grid-cols-2 gap-2.5">
-                    {vehicleOptions.map(v => (
-                      <motion.button
-                        key={v.id}
-                        onClick={() => setSelectedVehicle(v)}
-                        whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-                        className={`relative p-3.5 rounded-2xl text-left transition-all ${
-                          selectedVehicle?.id === v.id
-                            ? "border-2 border-[#7C3AED]"
-                            : "border border-white/10 hover:border-white/20"
-                        }`}
-                        style={
-                          selectedVehicle?.id === v.id
-                            ? { background: "rgba(124,58,237,0.15)", boxShadow: "0 0 22px rgba(124,58,237,0.3)" }
-                            : { background: "rgba(255,255,255,0.04)" }
-                        }>
-                        {/* Checkmark badge */}
-                        <AnimatePresence>
-                          {selectedVehicle?.id === v.id && (
+                  {/* ── No destination yet ── */}
+                  {!destination && (
+                    <div className="px-4 pb-6">
+                      <div className="flex flex-col items-center justify-center gap-3 py-8 rounded-2xl border border-dashed border-white/10"
+                        style={{ background: "rgba(255,255,255,0.025)" }}>
+                        <MapPin className="w-8 h-8 text-[#7C3AED] opacity-60" />
+                        <p className="text-[#A1A1AA] text-sm text-center leading-relaxed">
+                          Tap anywhere on the map<br />to set your destination
+                        </p>
+                        <motion.button
+                          onClick={() => setAwaitingDest(true)}
+                          whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                          className="px-5 py-2 rounded-xl text-xs font-bold text-white"
+                          style={{ background: "linear-gradient(135deg,#7C3AED,#2563EB)" }}>
+                          Set Destination
+                        </motion.button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Fetching route → shimmer skeleton ── */}
+                  {destination && fetchingRoute && (
+                    <div className="px-4 grid grid-cols-2 gap-2.5 pb-6">
+                      {[0,1,2,3].map(i => (
+                        <div key={i} className="p-3.5 rounded-2xl border border-white/8"
+                          style={{ background: "rgba(255,255,255,0.04)" }}>
+                          {/* shimmer bars */}
+                          <div className="h-10 w-14 rounded-lg mb-2 overflow-hidden relative"
+                            style={{ background: "rgba(255,255,255,0.06)" }}>
                             <motion.div
-                              initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
-                              className="absolute top-2.5 right-2.5 w-4 h-4 rounded-full bg-[#7C3AED] flex items-center justify-center">
-                              <span className="text-[9px] text-white font-bold">✓</span>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-
-                        {v.img
-                          ? <img
-                              src={v.img} alt={v.name}
-                              className="h-12 w-auto object-contain mb-1"
-                              style={{
-                                maskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
-                                WebkitMaskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
-                                filter: v.id === "suv"
-                                  ? "drop-shadow(0 2px 8px rgba(220,38,38,0.5)) brightness(1.1)"
-                                  : v.id === "premium"
-                                  ? "drop-shadow(0 2px 8px rgba(124,58,237,0.5)) brightness(1.05)"
-                                  : v.id === "mini"
-                                  ? "drop-shadow(0 2px 6px rgba(180,50,50,0.4)) brightness(1.1) saturate(1.2)"
-                                  : "drop-shadow(0 2px 6px rgba(37,99,235,0.4)) brightness(1.05)",
-                              }}
+                              animate={{ x: ["-100%", "200%"] }}
+                              transition={{ repeat: Infinity, duration: 1.2, delay: i * 0.15, ease: "linear" }}
+                              className="absolute inset-y-0 w-1/2"
+                              style={{ background: "linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent)" }}
                             />
-                          : <div className="text-2xl mb-2">{v.icon}</div>
-                        }
-                        <div className="text-white font-bold text-sm">{v.name}</div>
-                        <div className="text-[#7C3AED] font-bold text-sm">₹{v.fare}</div>
-
-                        <div className="mt-2 flex flex-col gap-1">
-                          <div className="flex items-center gap-1 text-[#A1A1AA] text-[10px]">
-                            <Clock className="w-2.5 h-2.5 flex-shrink-0" />
-                            {v.eta} min away
                           </div>
-                          <div className="flex items-center gap-1 text-[10px]">
-                            <Shield className="w-2.5 h-2.5 flex-shrink-0 text-emerald-400" />
-                            <span className="text-emerald-400">{v.safetyScore}% safe</span>
+                          <div className="h-3 w-16 rounded mb-1.5 overflow-hidden relative"
+                            style={{ background: "rgba(255,255,255,0.06)" }}>
+                            <motion.div animate={{ x: ["-100%", "200%"] }} transition={{ repeat: Infinity, duration: 1.2, delay: i * 0.15 + 0.1, ease: "linear" }} className="absolute inset-y-0 w-1/2" style={{ background: "linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent)" }} />
                           </div>
-                          <div className="text-[9px] text-[#52525B] truncate">{v.model}</div>
+                          <div className="h-3 w-12 rounded overflow-hidden relative"
+                            style={{ background: "rgba(255,255,255,0.06)" }}>
+                            <motion.div animate={{ x: ["-100%", "200%"] }} transition={{ repeat: Infinity, duration: 1.2, delay: i * 0.15 + 0.2, ease: "linear" }} className="absolute inset-y-0 w-1/2" style={{ background: "linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent)" }} />
+                          </div>
                         </div>
-                      </motion.button>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
 
-                  {/* Confirm button */}
-                  <div className="px-4 pt-3 pb-6">
-                    <motion.button
-                      onClick={handleConfirmRide}
-                      disabled={!selectedVehicle}
-                      whileHover={selectedVehicle ? { scale: 1.01 } : {}}
-                      whileTap={selectedVehicle ? { scale: 0.98 } : {}}
-                      className={`w-full py-3.5 rounded-2xl font-bold text-sm transition-all ${
-                        selectedVehicle
-                          ? "text-white"
-                          : "bg-white/5 border border-white/10 text-[#52525B] cursor-not-allowed"
-                      }`}
-                      style={selectedVehicle ? {
-                        background: "linear-gradient(135deg,#7C3AED,#2563EB)",
-                        boxShadow: "0 0 28px rgba(124,58,237,0.45)",
-                      } : {}}>
-                      {selectedVehicle
-                        ? `Confirm ${selectedVehicle.name} — ₹${selectedVehicle.fare}`
-                        : "Select a vehicle to continue"}
-                    </motion.button>
-                  </div>
+                  {/* ── Fares ready → vehicle cards ── */}
+                  {destination && !fetchingRoute && (
+                    <>
+                      <div className="px-4 grid grid-cols-2 gap-2.5">
+                        {vehicleOptions.map((v, idx) => (
+                          <motion.button
+                            key={v.id}
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: idx * 0.07, type: "spring", damping: 20 }}
+                            onClick={() => setSelectedVehicle(v)}
+                            whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                            className={`relative p-3.5 rounded-2xl text-left transition-all ${
+                              selectedVehicle?.id === v.id
+                                ? "border-2 border-[#7C3AED]"
+                                : "border border-white/10 hover:border-white/20"
+                            }`}
+                            style={
+                              selectedVehicle?.id === v.id
+                                ? { background: "rgba(124,58,237,0.15)", boxShadow: "0 0 26px rgba(124,58,237,0.35)" }
+                                : { background: "rgba(255,255,255,0.04)" }
+                            }>
+                            {/* Selected checkmark */}
+                            <AnimatePresence>
+                              {selectedVehicle?.id === v.id && (
+                                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+                                  className="absolute top-2.5 right-2.5 w-4 h-4 rounded-full bg-[#7C3AED] flex items-center justify-center">
+                                  <span className="text-[9px] text-white font-bold">✓</span>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+
+                            {v.img
+                              ? <img src={v.img} alt={v.name} className="h-12 w-auto object-contain mb-1"
+                                  style={{
+                                    maskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
+                                    WebkitMaskImage: "radial-gradient(ellipse 88% 82% at 52% 52%, black 38%, transparent 82%)",
+                                    filter: v.id === "suv"
+                                      ? "drop-shadow(0 2px 8px rgba(220,38,38,0.5)) brightness(1.1)"
+                                      : v.id === "premium"
+                                      ? "drop-shadow(0 2px 8px rgba(124,58,237,0.5)) brightness(1.05)"
+                                      : v.id === "mini"
+                                      ? "drop-shadow(0 2px 6px rgba(180,50,50,0.4)) brightness(1.1) saturate(1.2)"
+                                      : "drop-shadow(0 2px 6px rgba(37,99,235,0.4)) brightness(1.05)",
+                                  }} />
+                              : <div className="text-2xl mb-2">{v.icon}</div>
+                            }
+
+                            <div className="text-white font-bold text-sm">{v.name}</div>
+                            <div className="font-bold text-sm" style={{ color: "#a78bfa" }}>
+                              {v.fare > 0 ? `₹${v.fare}` : "—"}
+                            </div>
+
+                            <div className="mt-2 flex flex-col gap-1">
+                              <div className="flex items-center gap-1 text-[#A1A1AA] text-[10px]">
+                                <Clock className="w-2.5 h-2.5 flex-shrink-0" />
+                                {v.eta} min ETA
+                              </div>
+                              <div className="flex items-center gap-1 text-[10px]">
+                                <Shield className="w-2.5 h-2.5 flex-shrink-0 text-emerald-400" />
+                                <span className="text-emerald-400">{v.safetyScore}% safe</span>
+                              </div>
+                              <div className="text-[9px] text-[#52525B] truncate">{v.model}</div>
+                            </div>
+                          </motion.button>
+                        ))}
+                      </div>
+
+                      {/* Route summary pill */}
+                      {routeDistanceKm > 0 && (
+                        <div className="px-4 pt-2">
+                          <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] text-[#A1A1AA]"
+                            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                            <MapPin className="w-3 h-3 text-[#7C3AED] flex-shrink-0" />
+                            <span><b className="text-white">{routeDistanceKm.toFixed(1)} km</b> · ~{Math.round(routeDurationMin)} min · fares based on road route</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Confirm button */}
+                      <div className="px-4 pt-3 pb-6">
+                        <motion.button
+                          onClick={handleConfirmRide}
+                          disabled={!selectedVehicle}
+                          whileHover={selectedVehicle ? { scale: 1.01 } : {}}
+                          whileTap={selectedVehicle ? { scale: 0.98 } : {}}
+                          className={`w-full py-3.5 rounded-2xl font-bold text-sm transition-all ${
+                            selectedVehicle ? "text-white" : "bg-white/5 border border-white/10 text-[#52525B] cursor-not-allowed"
+                          }`}
+                          style={selectedVehicle ? {
+                            background: "linear-gradient(135deg,#7C3AED,#2563EB)",
+                            boxShadow: "0 0 28px rgba(124,58,237,0.45)",
+                          } : {}}>
+                          {selectedVehicle
+                            ? `Confirm ${selectedVehicle.name} — ₹${selectedVehicle.fare}`
+                            : "Select a vehicle to continue"}
+                        </motion.button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 

@@ -9,13 +9,19 @@ let refCount = 0
 export function getSocket(): Socket {
   if (!socket) {
     socket = io(SERVER_URL, {
-      autoConnect: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 2000,
+      transports:           ["websocket"],   // skip long-polling — connect immediately
+      autoConnect:          true,
+      reconnectionAttempts: 10,
+      reconnectionDelay:    1500,
     })
-    socket.on("connect", () => console.log("[socket] Connected  id=", socket?.id))
-    socket.on("connect_error", (err) => console.warn("[socket] Error:", err.message))
-    socket.on("disconnect", (reason) => console.log("[socket] Disconnected:", reason))
+    socket.on("connect", () =>
+      console.log("[socket] ✅ Connected  id=", socket?.id))
+    socket.on("connect_error", (err) =>
+      console.error("[socket] ❌ Connection error:", err.message))
+    socket.on("disconnect", (reason) =>
+      console.log("[socket] 🔌 Disconnected:", reason))
+    socket.on("reconnect", (attempt) =>
+      console.log("[socket] 🔄 Reconnected after attempt", attempt))
   }
   refCount++
   return socket
