@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from "framer-motion"
 import {
   Search, Crosshair, Loader2, AlertTriangle,
   Play, Square, Radio, Cpu, Zap, MapPin,
+  Wifi, WifiOff, Network,
+  Sliders, AlertCircle, ShieldAlert, CheckCircle2,
 } from "lucide-react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
@@ -17,6 +19,10 @@ import { generateKeyPair, signPayload, exportPublicKey } from "../lib/crypto"
 interface Coord { lat: number; lng: number }
 
 type TripStatus = "ACTIVE" | "ALERT" | "COMPLETED"
+type RelayPhase = "idle" | "scanning" | "connecting" | "queued"
+
+interface RelayNode { id: string; lat: number; lng: number }
+interface QueuedPacket { payload: object; signature: string; publicKey: string }
 
 interface Trip {
   tripId: string
@@ -38,6 +44,13 @@ const SIM_STEP = 0.0003
 const SIM_ARRIVE_THRESHOLD = 0.0002
 const CORRIDOR_RADIUS_KM = 0.3
 const DEVIATION_JUMP = 1.5
+
+// ── Risk scoring constants ──────────────────────────────────────────────────
+const RISK_DECAY         = 4    // score decrease per tick while inside corridor
+const RISK_BASE_INCREASE = 5    // base score increase per tick while outside
+const RISK_TIME_FACTOR   = 0.8  // extra score per consecutive tick outside
+const RISK_DIST_FACTOR   = 12   // extra score per km from route line
+const RISK_CAP_PER_TICK  = 30   // max score increase in a single tick
 
 // ── Pure helpers ───────────────────────────────────────────────────────────
 
@@ -81,6 +94,16 @@ export default function CabPage() {
   const [destination, setDestination] = useState<Coord | null>(null)
   const [awaitingDest, setAwaitingDest] = useState(false)
   const [deviationAlert, setDeviationAlert] = useState(false)
+  const [riskScore, setRiskScore]           = useState(0)
+  const [demoOpen, setDemoOpen]             = useState(false)
+  const [demoOffline, setDemoOffline]       = useState(false)
+
+  // ── Relay / offline state ────────────────────────────────────────────────
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [relayPhase, setRelayPhase] = useState<RelayPhase>("idle")
+  const [relayNodes, setRelayNodes] = useState<RelayNode[]>([])
+  const [relayHops, setRelayHops] = useState(0)
+  const [transmitStatus, setTransmitStatus] = useState<"idle" | "transmitting" | "transmitted">("idle")
 
   // Map layer refs
   const mapRef = useRef<HTMLDivElement>(null)
@@ -100,12 +123,121 @@ export default function CabPage() {
   const destinationRef = useRef<Coord | null>(destination)
   const corridorRef = useRef<Feature<Polygon> | null>(null)
   const awaitingDestRef = useRef(false)
-  const alertEmittedRef = useRef(false)
-  const keyPairRef = useRef<CryptoKeyPair | null>(null)
+  const alertEmittedRef  = useRef(false)
+  const keyPairRef       = useRef<CryptoKeyPair | null>(null)
+  const riskScoreRef     = useRef(0)
+  const timeOutsideRef   = useRef(0)
+  const demoRampRef      = useRef<ReturnType<typeof setInterval> | null>(null)
+  const demoOfflineRef   = useRef(false)
+
+  // Relay refs
+  const relayLayerRef    = useRef<L.LayerGroup | null>(null)
+  const queuedPacketRef  = useRef<QueuedPacket | null>(null)
+  const isOnlineRef      = useRef(navigator.onLine)
+  const relayPhaseRef    = useRef<RelayPhase>("idle")
 
   useEffect(() => { tripRef.current = trip }, [trip])
   useEffect(() => { destinationRef.current = destination }, [destination])
   useEffect(() => { awaitingDestRef.current = awaitingDest }, [awaitingDest])
+  useEffect(() => { isOnlineRef.current = isOnline }, [isOnline])
+  useEffect(() => { relayPhaseRef.current = relayPhase }, [relayPhase])
+
+  // ── Network detection ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const goOnline  = () => setIsOnline(true)
+    const goOffline = () => setIsOnline(false)
+    window.addEventListener("online",  goOnline)
+    window.addEventListener("offline", goOffline)
+    return () => {
+      window.removeEventListener("online",  goOnline)
+      window.removeEventListener("offline", goOffline)
+    }
+  }, [])
+
+  // ── Clear relay layer helper ──────────────────────────────────────────────
+
+  const clearRelay = useCallback(() => {
+    relayLayerRef.current?.clearLayers()
+    setRelayNodes([])
+    setRelayHops(0)
+    setRelayPhase("idle")
+    relayPhaseRef.current = "idle"
+    queuedPacketRef.current = null
+  }, [])
+
+  // ── Relay simulation ──────────────────────────────────────────────────────
+
+  const startRelaySimulation = useCallback((lat: number, lng: number) => {
+    if (relayPhaseRef.current !== "idle") return
+    setRelayPhase("scanning")
+    relayPhaseRef.current = "scanning"
+
+    // Generate 1–3 nearby virtual Sahayak Nodes
+    const count = 1 + Math.floor(Math.random() * 3)
+    const nodes: RelayNode[] = Array.from({ length: count }, (_, i) => ({
+      id: `SN-${String(i + 1).padStart(2, "0")}`,
+      lat: lat + (Math.random() * 0.018 - 0.009),
+      lng: lng + (Math.random() * 0.018 - 0.009),
+    }))
+    setRelayNodes(nodes)
+
+    const map = mapInstanceRef.current
+    const layer = relayLayerRef.current
+    if (map && layer) {
+      nodes.forEach((node, i) => {
+        setTimeout(() => {
+          if (!relayLayerRef.current) return
+          // Blue glowing node marker
+          L.circleMarker([node.lat, node.lng], {
+            radius: 9, fillColor: "#3b82f6", color: "#93c5fd",
+            weight: 2.5, fillOpacity: 0.85, pane: "markerPane",
+          })
+            .bindTooltip(`⚡ Sahayak Node ${node.id}`, { permanent: false, direction: "top" })
+            .addTo(relayLayerRef.current)
+
+          // Animated dashed connection line: user → node
+          L.polyline([[lat, lng], [node.lat, node.lng]], {
+            color: "#60a5fa", weight: 2, dashArray: "8 5", opacity: 0.75,
+          }).addTo(relayLayerRef.current)
+        }, i * 600)
+      })
+    }
+
+    // Phase: scanning → connecting (after 2 s)
+    setTimeout(() => {
+      if (relayPhaseRef.current !== "scanning") return
+      setRelayPhase("connecting")
+      relayPhaseRef.current = "connecting"
+      setRelayHops(1)
+    }, 2000)
+
+    // Phase: connecting → queued (4–6 s total)
+    const queueDelay = 4000 + Math.floor(Math.random() * 2000)
+    setTimeout(() => {
+      if (relayPhaseRef.current !== "connecting") return
+      setRelayPhase("queued")
+      relayPhaseRef.current = "queued"
+      setRelayHops(nodes.length)
+    }, queueDelay)
+  }, [])
+
+  // ── Auto-send queued packet when network reconnects ───────────────────────
+
+  useEffect(() => {
+    if (!isOnline || !queuedPacketRef.current) return
+    const pkt = queuedPacketRef.current
+    setTransmitStatus("transmitting")
+    // Small dramatic delay so user sees the "transmitting" state
+    setTimeout(() => {
+      getSocket().emit("EMERGENCY_EVENT", pkt)
+      queuedPacketRef.current = null
+      setTransmitStatus("transmitted")
+      clearRelay()
+      setTimeout(() => setTransmitStatus("idle"), 5000)
+    }, 1200)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline])
 
   // ── Corridor (useMemo) ────────────────────────────────────────────────────
 
@@ -178,12 +310,14 @@ export default function CabPage() {
     }
 
     const rafId = requestAnimationFrame(() => { map.invalidateSize() })
+    relayLayerRef.current = L.layerGroup().addTo(map)
 
     return () => {
       cancelAnimationFrame(rafId)
       map.remove()
       mapInstanceRef.current = null
       markerRef.current = null
+      relayLayerRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -281,42 +415,85 @@ export default function CabPage() {
 
   const pushCoord = useCallback((lat: number, lng: number, polyColor = "#7C3AED") => {
     const corridor = corridorRef.current
-    const current = tripRef.current
+    const current  = tripRef.current
     let markerColor = polyColor
-    let lineColor = polyColor
+    let lineColor   = polyColor
 
-    if (corridor && current && current.status === "ACTIVE") {
+    if (corridor && current && (current.status === "ACTIVE" || current.status === "ALERT")) {
       const inside = isInsideCorridor(corridor, lat, lng)
+
       if (!inside) {
         markerColor = "#ef4444"
-        lineColor = "#ef4444"
-        const alertTrip: Trip = { ...current, status: "ALERT" }
-        tripRef.current = alertTrip
-        setTrip(alertTrip)
-        saveTrip(alertTrip)
-        setDeviationAlert(true)
+        lineColor   = "#ef4444"
 
-        if (!alertEmittedRef.current) {
+        // First time outside: escalate trip to ALERT
+        if (current.status === "ACTIVE") {
+          const alertTrip: Trip = { ...current, status: "ALERT" }
+          tripRef.current = alertTrip
+          setTrip(alertTrip)
+          saveTrip(alertTrip)
+          setDeviationAlert(true)
+        }
+
+        // ── Risk score: increase every tick outside ─────────────────────────
+        timeOutsideRef.current += 1
+
+        // Distance from route line (km) — used to scale risk increase
+        const start = current.startLocation
+        const dest  = destinationRef.current
+        let distKm  = 0
+        if (start && dest) {
+          const line    = turf.lineString([[start.lng, start.lat], [dest.lng, dest.lat]])
+          const nearest = turf.nearestPointOnLine(line, turf.point([lng, lat]), { units: "kilometers" })
+          distKm        = nearest.properties.dist ?? 0
+        }
+
+        const prevRisk = riskScoreRef.current
+        const rawInc   = RISK_BASE_INCREASE
+                       + timeOutsideRef.current * RISK_TIME_FACTOR
+                       + distKm * RISK_DIST_FACTOR
+        const increase = Math.min(rawInc, RISK_CAP_PER_TICK)
+        const newRisk  = Math.min(100, prevRisk + increase)
+        riskScoreRef.current = newRisk
+        setRiskScore(newRisk)
+
+        // Only emit emergency when risk first crosses CRITICAL (≥ 70)
+        if (newRisk >= 70 && !alertEmittedRef.current) {
           alertEmittedRef.current = true
           const emergencyPayload = {
-            tripId: current.tripId,
-            location: { lat, lng },
+            tripId:    current.tripId,
+            location:  { lat, lng },
             timestamp: Date.now(),
-            severity: "HIGH" as const,
+            severity:  "HIGH" as const,
           }
           ;(async () => {
             const kp = keyPairRef.current
+            let pkt: QueuedPacket
             if (kp) {
               const [signature, publicKey] = await Promise.all([
                 signPayload(kp.privateKey, emergencyPayload),
                 exportPublicKey(kp.publicKey),
               ])
-              getSocket().emit("EMERGENCY_EVENT", { payload: emergencyPayload, signature, publicKey })
+              pkt = { payload: emergencyPayload, signature, publicKey }
             } else {
-              getSocket().emit("EMERGENCY_EVENT", { payload: emergencyPayload, signature: "", publicKey: "" })
+              pkt = { payload: emergencyPayload, signature: "", publicKey: "" }
+            }
+            if (isOnlineRef.current) {
+              getSocket().emit("EMERGENCY_EVENT", pkt)
+            } else {
+              queuedPacketRef.current = pkt
+              startRelaySimulation(lat, lng)
             }
           })()
         }
+
+      } else {
+        // ── Inside corridor: gradually decay risk score ─────────────────────
+        timeOutsideRef.current = 0
+        const prevRisk = riskScoreRef.current
+        const newRisk  = Math.max(0, prevRisk - RISK_DECAY)
+        riskScoreRef.current = newRisk
+        setRiskScore(newRisk)
       }
     }
 
@@ -332,7 +509,7 @@ export default function CabPage() {
     }
 
     simPosRef.current = { lat, lng }
-  }, [placeMarker, appendToPolyline])
+  }, [placeMarker, appendToPolyline, startRelaySimulation])
 
   // ── GPS helpers ───────────────────────────────────────────────────────────
 
@@ -471,6 +648,9 @@ export default function CabPage() {
     if (destMarkerRef.current) { destMarkerRef.current.remove(); destMarkerRef.current = null }
     setDestination(null)
     setDeviationAlert(false)
+    setRiskScore(0)
+    riskScoreRef.current  = 0
+    timeOutsideRef.current = 0
     alertEmittedRef.current = false
     keyPairRef.current = null
 
@@ -515,16 +695,131 @@ export default function CabPage() {
     const completed: Trip = { ...current, status: "COMPLETED" }
     setTrip(completed); saveTrip(completed); tripRef.current = completed
     setDeviationAlert(false)
+    setRiskScore(0)
+    riskScoreRef.current   = 0
+    timeOutsideRef.current = 0
+    clearRelay()
+    setTransmitStatus("idle")
     markerRef.current?.bindPopup("<b>Trip Ended</b>").openPopup()
     if (polylineRef.current && mapInstanceRef.current) {
       try { mapInstanceRef.current.fitBounds(polylineRef.current.getBounds(), { padding: [60, 60] }) } catch { /* short */ }
     }
-  }, [stopWatch, stopSimulation])
+  }, [stopWatch, stopSimulation, clearRelay])
 
   useEffect(() => {
     getSocket()
-    return () => { stopWatch(); stopSimulation(); releaseSocket() }
+    return () => {
+      stopWatch(); stopSimulation(); releaseSocket()
+      if (demoRampRef.current) clearInterval(demoRampRef.current)
+    }
   }, [stopWatch, stopSimulation])
+
+  // ── Demo Control Panel helpers ────────────────────────────────────────────
+
+  /** Smoothly animate riskScore from its current value to `target` over `ms`. */
+  const rampRisk = useCallback((target: number, ms = 2000) => {
+    if (demoRampRef.current) clearInterval(demoRampRef.current)
+    const start  = riskScoreRef.current
+    const startT = Date.now()
+    demoRampRef.current = setInterval(() => {
+      const p   = Math.min(1, (Date.now() - startT) / ms)
+      const val = Math.round(start + (target - start) * p)
+      riskScoreRef.current = val
+      setRiskScore(val)
+      if (p >= 1) { clearInterval(demoRampRef.current!); demoRampRef.current = null }
+    }, 40)
+  }, [])
+
+  /** Demo: ride entirely inside corridor — score decays to 0. */
+  const demoSafeRide = useCallback(() => {
+    timeOutsideRef.current = 0
+    setDeviationAlert(false)
+    rampRisk(0, 2500)
+  }, [rampRisk])
+
+  /** Demo: mild drift — WARNING band. */
+  const demoMildDeviation = useCallback(() => {
+    const current = tripRef.current
+    if (!current) { setError("Start a ride first to use demo scenarios."); return }
+    if (current.status === "ACTIVE") {
+      const alertTrip: Trip = { ...current, status: "ALERT" }
+      tripRef.current = alertTrip; setTrip(alertTrip); saveTrip(alertTrip)
+    }
+    setDeviationAlert(true)
+    timeOutsideRef.current = 5
+    rampRisk(45, 2000)
+  }, [rampRisk])
+
+  /** Demo: serious drift — approaches CRITICAL but stays below emission. */
+  const demoCriticalDeviation = useCallback(() => {
+    const current = tripRef.current
+    if (!current) { setError("Start a ride first to use demo scenarios."); return }
+    if (current.status === "ACTIVE") {
+      const alertTrip: Trip = { ...current, status: "ALERT" }
+      tripRef.current = alertTrip; setTrip(alertTrip); saveTrip(alertTrip)
+    }
+    setDeviationAlert(true)
+    timeOutsideRef.current = 15
+    rampRisk(82, 2500)
+  }, [rampRisk])
+
+  /** Demo: instantly reach CRITICAL and emit emergency. */
+  const demoTriggerEmergency = useCallback(() => {
+    const current = tripRef.current
+    if (!current) { setError("Start a ride first to use demo scenarios."); return }
+    if (current.status === "ACTIVE") {
+      const alertTrip: Trip = { ...current, status: "ALERT" }
+      tripRef.current = alertTrip; setTrip(alertTrip); saveTrip(alertTrip)
+    }
+    setDeviationAlert(true)
+    riskScoreRef.current = 100; setRiskScore(100)
+    if (!alertEmittedRef.current) {
+      alertEmittedRef.current = true
+      const pos = simPosRef.current
+      const emergencyPayload = {
+        tripId:    current.tripId,
+        location:  { lat: pos.lat, lng: pos.lng },
+        timestamp: Date.now(),
+        severity:  "HIGH" as const,
+      }
+      ;(async () => {
+        const kp = keyPairRef.current
+        let pkt: QueuedPacket
+        if (kp) {
+          const [sig, pub] = await Promise.all([
+            signPayload(kp.privateKey, emergencyPayload),
+            exportPublicKey(kp.publicKey),
+          ])
+          pkt = { payload: emergencyPayload, signature: sig, publicKey: pub }
+        } else {
+          pkt = { payload: emergencyPayload, signature: "", publicKey: "" }
+        }
+        if (isOnlineRef.current) {
+          getSocket().emit("EMERGENCY_EVENT", pkt)
+        } else {
+          queuedPacketRef.current = pkt
+          startRelaySimulation(pos.lat, pos.lng)
+        }
+      })()
+    }
+  }, [startRelaySimulation])
+
+  /** Demo: force system offline / restore to real network state. */
+  const demoToggleOffline = useCallback(() => {
+    const next = !demoOfflineRef.current
+    demoOfflineRef.current = next
+    setDemoOffline(next)
+    setIsOnline(!next)
+    isOnlineRef.current = !next
+    if (next) {
+      // Forced offline — if there's an active queued packet start relay immediately
+      const pos = simPosRef.current
+      if (deviationAlert && !queuedPacketRef.current) startRelaySimulation(pos.lat, pos.lng)
+    } else {
+      // Back online — clear relay UI if nothing queued
+      if (!queuedPacketRef.current) clearRelay()
+    }
+  }, [deviationAlert, startRelaySimulation, clearRelay])
 
   // ── Search ────────────────────────────────────────────────────────────────
 
@@ -555,10 +850,16 @@ export default function CabPage() {
 
   // ── Derived state ─────────────────────────────────────────────────────────
 
-  const isActive = trip?.status === "ACTIVE"
-  const isAlert = trip?.status === "ALERT"
-  const isRunning = isActive || isAlert
+  const isActive    = trip?.status === "ACTIVE"
+  const isAlert     = trip?.status === "ALERT"
+  const isRunning   = isActive || isAlert
   const isCompleted = trip?.status === "COMPLETED"
+
+  const riskStatus: "SAFE" | "WARNING" | "CRITICAL" =
+    riskScore < 30 ? "SAFE" : riskScore < 70 ? "WARNING" : "CRITICAL"
+
+  const riskColor =
+    riskStatus === "SAFE" ? "#22c55e" : riskStatus === "WARNING" ? "#eab308" : "#ef4444"
 
   const formatElapsed = (s: number) => {
     const m = Math.floor(s / 60), sec = s % 60
@@ -597,6 +898,51 @@ export default function CabPage() {
                 </motion.div>
                 ⚠ Route Deviation Detected — You are outside the safe corridor
               </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Relay mode banner */}
+        <AnimatePresence>
+          {relayPhase !== "idle" && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+              className={`absolute left-0 right-0 z-[1049] ${deviationAlert ? "top-12" : "top-0"}`}>
+              <motion.div
+                animate={{ opacity: [0.88, 1, 0.88] }} transition={{ repeat: Infinity, duration: 1.6 }}
+                className="flex items-center justify-center gap-3 px-6 py-2.5 text-sm font-bold text-white"
+                style={{ background: "linear-gradient(90deg,#1e3a8a,#2563eb,#1e3a8a)", boxShadow: "0 4px 20px rgba(37,99,235,0.55)" }}>
+                <motion.div animate={{ rotate: relayPhase === "scanning" ? 360 : 0 }} transition={{ repeat: Infinity, duration: 1.4, ease: "linear" }}>
+                  <Network className="w-4 h-4" />
+                </motion.div>
+                {relayPhase === "scanning"   && "⚡ Network Unavailable — Switching to Relay Mode"}
+                {relayPhase === "connecting" && `⚡ Connecting via Sahayak Nodes… (${relayHops} hop${relayHops !== 1 ? "s" : ""})`}
+                {relayPhase === "queued"     && `📡 Emergency queued · ${relayHops} relay hop${relayHops !== 1 ? "s" : ""} — will transmit on reconnect`}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Transmission success banner */}
+        <AnimatePresence>
+          {transmitStatus === "transmitting" && (
+            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+              className="absolute top-0 left-0 right-0 z-[1049]">
+              <div className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold text-white"
+                style={{ background: "linear-gradient(90deg,#065f46,#10b981,#065f46)", boxShadow: "0 4px 20px rgba(16,185,129,0.5)" }}>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Transmitting emergency packet…
+              </div>
+            </motion.div>
+          )}
+          {transmitStatus === "transmitted" && (
+            <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+              className="absolute top-0 left-0 right-0 z-[1049]">
+              <div className="flex items-center justify-center gap-2 px-6 py-2.5 text-sm font-bold text-white"
+                style={{ background: "linear-gradient(90deg,#065f46,#10b981,#065f46)", boxShadow: "0 4px 20px rgba(16,185,129,0.5)" }}>
+                <Wifi className="w-4 h-4" />
+                ✓ Emergency transmitted successfully
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -692,6 +1038,22 @@ export default function CabPage() {
             )}
           </AnimatePresence>
 
+          {/* Network status badge */}
+          <motion.div
+            key={isOnline ? "online" : "offline"}
+            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md border shadow-xl whitespace-nowrap ${
+              isOnline
+                ? "bg-[#18181B]/90 border-emerald-500/40 text-emerald-400"
+                : "bg-[#18181B]/90 border-red-500/40 text-red-400"
+            }`}>
+            {isOnline
+              ? <Wifi className="w-3 h-3" />
+              : <motion.div animate={{ opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1 }}><WifiOff className="w-3 h-3" /></motion.div>
+            }
+            {isOnline ? "Online" : "Offline"}
+          </motion.div>
+
           <AnimatePresence>
             {simActive && (
               <motion.div initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
@@ -710,6 +1072,21 @@ export default function CabPage() {
                 <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
                 <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
                 Corridor Active — 300 m buffer
+              </motion.div>
+            )}
+            {isRunning && riskScore > 0 && (
+              <motion.div
+                key={riskStatus}
+                initial={{ opacity: 0, scale: 0.85 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#18181B]/90 backdrop-blur-md text-xs font-bold shadow-xl whitespace-nowrap"
+                style={{ border: `1px solid ${riskColor}55`, color: riskColor }}>
+                <motion.div
+                  animate={riskStatus === "CRITICAL" ? { scale: [1, 1.35, 1] } : {}}
+                  transition={{ repeat: Infinity, duration: 0.7 }}
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ background: riskColor }}
+                />
+                Risk {Math.round(riskScore)} — {riskStatus}
               </motion.div>
             )}
           </AnimatePresence>
@@ -753,6 +1130,124 @@ export default function CabPage() {
               </motion.button>
             )}
           </AnimatePresence>
+
+          {/* ── Demo Controls toggle ── */}
+          <div className="mt-1 pt-2 border-t border-white/10">
+            <button
+              onClick={() => setDemoOpen(d => !d)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-xl transition-all w-full whitespace-nowrap ${
+                demoOpen
+                  ? "bg-[#7C3AED]/25 border border-[#7C3AED]/60 text-purple-300"
+                  : "bg-[#18181B]/90 backdrop-blur-md border border-white/10 text-[#A1A1AA] hover:text-white hover:bg-white/10"
+              }`}
+              style={demoOpen ? { boxShadow: "0 0 18px rgba(124,58,237,0.3)" } : {}}>
+              <Sliders className="w-4 h-4 flex-shrink-0" />
+              {demoOpen ? "Close Demo" : "Demo Controls"}
+            </button>
+          </div>
+
+          {/* ── Demo panel (collapsible) ── */}
+          <AnimatePresence>
+            {demoOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0, y: -8 }}
+                animate={{ opacity: 1, height: "auto", y: 0 }}
+                exit={{ opacity: 0, height: 0, y: -8 }}
+                transition={{ duration: 0.25, ease: "easeInOut" }}
+                className="overflow-hidden">
+                <div className="rounded-2xl overflow-hidden shadow-2xl mt-0.5"
+                  style={{ background: "rgba(12,12,18,0.97)", backdropFilter: "blur(16px)", border: "1px solid rgba(124,58,237,0.3)" }}>
+
+                  {/* Header */}
+                  <div className="flex items-center gap-2 px-4 py-3 border-b border-white/8"
+                    style={{ background: "linear-gradient(135deg,rgba(124,58,237,0.18),transparent)" }}>
+                    <motion.div
+                      animate={{ opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 2 }}
+                      className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                    <span className="text-[10px] font-bold tracking-[0.15em] text-purple-300 uppercase">Demo Controls</span>
+                    <span className="ml-auto text-[9px] text-[#52525B] font-medium">Presentation Only</span>
+                  </div>
+
+                  <div className="p-3 flex flex-col gap-2">
+
+                    {/* Safe Ride */}
+                    <button
+                      onClick={demoSafeRide}
+                      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
+                        bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/50">
+                      <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <div>
+                        <div className="text-[11px] font-bold">Simulate Safe Ride</div>
+                        <div className="text-[9px] text-emerald-600 font-normal">Ramp risk → 0 (SAFE)</div>
+                      </div>
+                    </button>
+
+                    {/* Mild Deviation */}
+                    <button
+                      onClick={demoMildDeviation}
+                      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
+                        bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20 hover:border-yellow-500/50">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <div>
+                        <div className="text-[11px] font-bold">Simulate Mild Deviation</div>
+                        <div className="text-[9px] text-yellow-600 font-normal">Ramp risk → 45 (WARNING)</div>
+                      </div>
+                    </button>
+
+                    {/* Critical Deviation */}
+                    <button
+                      onClick={demoCriticalDeviation}
+                      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
+                        bg-orange-500/10 border border-orange-500/30 text-orange-400 hover:bg-orange-500/20 hover:border-orange-500/50">
+                      <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <div>
+                        <div className="text-[11px] font-bold">Simulate Critical Deviation</div>
+                        <div className="text-[9px] text-orange-600 font-normal">Ramp risk → 82 (near CRITICAL)</div>
+                      </div>
+                    </button>
+
+                    {/* Trigger Emergency */}
+                    <button
+                      onClick={demoTriggerEmergency}
+                      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full
+                        bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20 hover:border-red-500/50">
+                      <motion.div
+                        animate={{ scale: [1, 1.15, 1] }} transition={{ repeat: Infinity, duration: 0.9 }}>
+                        <Zap className="w-3.5 h-3.5 flex-shrink-0" />
+                      </motion.div>
+                      <div>
+                        <div className="text-[11px] font-bold">Trigger Emergency Instantly</div>
+                        <div className="text-[9px] text-red-600 font-normal">Risk → 100 → emit WebSocket</div>
+                      </div>
+                    </button>
+
+                    {/* Offline Toggle */}
+                    <button
+                      onClick={demoToggleOffline}
+                      className={`group flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all text-left w-full ${
+                        demoOffline
+                          ? "bg-blue-500/20 border border-blue-400/60 text-blue-300"
+                          : "bg-blue-500/10 border border-blue-500/30 text-blue-400 hover:bg-blue-500/20 hover:border-blue-500/50"
+                      }`}>
+                      {demoOffline
+                        ? <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1.2 }}>
+                            <WifiOff className="w-3.5 h-3.5 flex-shrink-0" />
+                          </motion.div>
+                        : <Wifi className="w-3.5 h-3.5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      }
+                      <div>
+                        <div className="text-[11px] font-bold">{demoOffline ? "Restore Network" : "Toggle Offline Mode"}</div>
+                        <div className={`text-[9px] font-normal ${demoOffline ? "text-blue-500" : "text-blue-600"}`}>
+                          {demoOffline ? "Currently: OFFLINE (relay active)" : "Force relay mode simulation"}
+                        </div>
+                      </div>
+                    </button>
+
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Error toast */}
@@ -763,6 +1258,125 @@ export default function CabPage() {
               <AlertTriangle className="w-5 h-5 flex-shrink-0" />
               <p className="text-sm flex-1">{error}</p>
               <button onClick={() => setError(null)} className="text-red-400 hover:text-white text-xs">✕</button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Relay status panel */}
+        <AnimatePresence>
+          {relayPhase !== "idle" && (
+            <motion.div
+              initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}
+              className="absolute bottom-32 left-4 z-[1000] w-56 rounded-xl overflow-hidden shadow-2xl"
+              style={{ border: "1px solid rgba(59,130,246,0.4)", background: "rgba(15,23,42,0.92)", backdropFilter: "blur(12px)" }}>
+              <div className="px-4 py-2.5 flex items-center gap-2 border-b border-blue-500/20"
+                style={{ background: "linear-gradient(90deg,rgba(37,99,235,0.2),transparent)" }}>
+                <motion.div animate={{ opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1.2 }}
+                  className="w-2 h-2 rounded-full bg-blue-500" />
+                <span className="text-blue-300 text-xs font-bold tracking-wider">RELAY MODE</span>
+              </div>
+              <div className="px-4 py-3 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-[#A1A1AA]">Status</span>
+                  <span className="text-blue-300 font-semibold capitalize">
+                    {relayPhase === "scanning" && "Scanning…"}
+                    {relayPhase === "connecting" && "Connecting"}
+                    {relayPhase === "queued" && "Queued"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#A1A1AA]">Relay Hops</span>
+                  <span className="text-blue-300 font-semibold">{relayHops}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#A1A1AA]">Nodes Found</span>
+                  <span className="text-blue-300 font-semibold">{relayNodes.length}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[#A1A1AA]">Transmission</span>
+                  <span className={`font-semibold ${relayPhase === "queued" ? "text-yellow-400" : "text-blue-300"}`}>
+                    {relayPhase === "queued" ? "Queued" : "Pending"}
+                  </span>
+                </div>
+                {relayNodes.length > 0 && (
+                  <div className="pt-1 border-t border-blue-500/20">
+                    {relayNodes.map(n => (
+                      <div key={n.id} className="flex items-center gap-1.5 mt-1">
+                        <motion.div animate={{ opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 1.5, delay: Math.random() }}
+                          className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
+                        <span className="text-blue-400 font-mono text-[10px]">{n.id}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Risk Score Meter */}
+        <AnimatePresence>
+          {isRunning && (
+            <motion.div
+              initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }}
+              className="absolute bottom-24 right-4 z-[1000] w-48 rounded-2xl overflow-hidden shadow-2xl"
+              style={{ background: "rgba(18,18,22,0.92)", backdropFilter: "blur(14px)", border: `1px solid ${riskColor}40` }}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 pt-3 pb-1">
+                <span className="text-[10px] font-bold tracking-widest text-[#A1A1AA] uppercase">Risk Score</span>
+                <motion.span
+                  key={riskStatus}
+                  initial={{ scale: 0.8 }} animate={{ scale: 1 }}
+                  className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-full"
+                  style={{ background: `${riskColor}22`, color: riskColor, border: `1px solid ${riskColor}55` }}>
+                  {riskStatus}
+                </motion.span>
+              </div>
+
+              {/* Numeric score */}
+              <div className="flex items-end gap-1 px-4 pb-2">
+                <motion.span
+                  key={Math.round(riskScore)}
+                  initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                  className="text-3xl font-black tabular-nums"
+                  style={{ color: riskColor }}>
+                  {Math.round(riskScore)}
+                </motion.span>
+                <span className="text-[#A1A1AA] text-sm mb-1">/100</span>
+              </div>
+
+              {/* Bar track */}
+              <div className="px-4 pb-4">
+                <div className="h-2.5 rounded-full bg-white/8 overflow-hidden">
+                  <motion.div
+                    animate={{ width: `${riskScore}%` }}
+                    transition={{ duration: 0.6, ease: "easeOut" }}
+                    className="h-full rounded-full"
+                    style={{
+                      background: `linear-gradient(90deg, #22c55e, ${riskScore >= 30 ? "#eab308" : "#22c55e"}, ${riskScore >= 70 ? "#ef4444" : riskScore >= 30 ? "#eab308" : "#22c55e"})`,
+                      boxShadow: riskScore > 0 ? `0 0 10px ${riskColor}80` : "none",
+                    }}
+                  />
+                </div>
+
+                {/* Scale ticks */}
+                <div className="flex justify-between mt-1">
+                  <span className="text-[9px] text-green-500">0</span>
+                  <span className="text-[9px] text-yellow-500">30</span>
+                  <span className="text-[9px] text-red-500">70</span>
+                  <span className="text-[9px] text-[#A1A1AA]">100</span>
+                </div>
+              </div>
+
+              {/* Critical pulse overlay */}
+              {riskStatus === "CRITICAL" && (
+                <motion.div
+                  animate={{ opacity: [0, 0.15, 0] }}
+                  transition={{ repeat: Infinity, duration: 1.2 }}
+                  className="absolute inset-0 rounded-2xl pointer-events-none"
+                  style={{ background: "#ef4444" }}
+                />
+              )}
             </motion.div>
           )}
         </AnimatePresence>
