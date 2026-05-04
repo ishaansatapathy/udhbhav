@@ -40,6 +40,69 @@ function randomNear(center, radiusDeg = 0.04) {
   }
 }
 
+// ── OSRM route fetching for road-accurate agent movement ──────────────────────
+
+/** Per-agent route waypoints: agentId → { waypoints: [[lat,lng],...], waypointIdx: number } */
+const agentRoutes = new Map()
+
+const OSRM_URLS = [
+  "https://router.project-osrm.org/route/v1/driving",
+  "https://routing.openstreetmap.de/routed-car/route/v1/driving",
+]
+
+/**
+ * Fetch OSRM driving route and return [[lat,lng],...] waypoints.
+ * Falls back to straight line on failure.
+ */
+async function fetchRouteWaypoints(fromLat, fromLng, toLat, toLng) {
+  const coordStr = `${fromLng},${fromLat};${toLng},${toLat}`
+  for (const base of OSRM_URLS) {
+    try {
+      const url = `${base}/${coordStr}?overview=full&geometries=geojson`
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
+      if (!res.ok) continue
+      const data = await res.json()
+      if (data.code !== "Ok" || !data.routes?.[0]?.geometry?.coordinates?.length) continue
+      const coords = data.routes[0].geometry.coordinates
+      // OSRM returns [lng, lat], convert to [lat, lng]
+      const waypoints = coords.map(([lng, lat]) => [lat, lng])
+      if (waypoints.length >= 2) return waypoints
+    } catch {
+      // try next URL
+    }
+  }
+  // Fallback: straight line
+  return [[fromLat, fromLng], [toLat, toLng]]
+}
+
+/**
+ * Kick off route fetch for an assigned agent. Non-blocking — agent starts
+ * moving straight and switches to road waypoints once the fetch completes.
+ */
+function fetchRouteForAgent(agent) {
+  if (!agent.targetLat || !agent.targetLng) return
+  const agentId = agent.id
+  // Start with straight-line fallback immediately
+  agentRoutes.set(agentId, {
+    waypoints: [[agent.lat, agent.lng], [agent.targetLat, agent.targetLng]],
+    waypointIdx: 0,
+  })
+  // Fire async route fetch
+  fetchRouteWaypoints(agent.lat, agent.lng, agent.targetLat, agent.targetLng)
+    .then(wp => {
+      // Only update if agent is still assigned to the same target
+      const current = agentRoutes.get(agentId)
+      if (!current) return
+      if (agent.status !== "assigned") return
+      // Merge: keep current position as first waypoint, splice in road geometry
+      agentRoutes.set(agentId, { waypoints: wp, waypointIdx: 0 })
+      console.log(`[ROUTE] ${agentId} got ${wp.length} road waypoints from OSRM`)
+    })
+    .catch(() => {
+      // keep straight-line fallback
+    })
+}
+
 // ── Generate 30 agents ────────────────────────────────────────────────────────
 function generateAgents() {
   const agents = []
@@ -246,6 +309,9 @@ function allocateAgent(event, distanceFn, filter, fairnessCtx) {
   winner.fuel_level = Math.max(0, winner.fuel_level - Math.floor(win.dist))
   winner.assignment_load = (winner.assignment_load || 0) + event.severity / 6.5 + 0.28
 
+  // Fetch OSRM road route for realistic movement
+  fetchRouteForAgent(winner)
+
   console.log(
     `[AGENT] ${winner.id} (${winner.type}) → event ${event.id} | final=${win.score.toFixed(2)} base=${win.baseScore.toFixed(2)} ` +
       `fair×${win.fairnessMult.toFixed(2)} impact×${win.impactMult.toFixed(2)} dist=${win.dist.toFixed(2)}km γ=${gamma.toFixed(2)}`
@@ -288,6 +354,7 @@ function allocateAgent(event, distanceFn, filter, fairnessCtx) {
 
 
 // ── Move agents one step toward their target (called on tick) ────────────────
+// Follows OSRM waypoints if available, otherwise straight-line fallback.
 function tickAgents(resolvedEventIds = new Set()) {
   for (const agent of agents) {
     const al = agent.assignment_load ?? 0
@@ -296,22 +363,66 @@ function tickAgents(resolvedEventIds = new Set()) {
   for (const agent of agents) {
     if (agent.status === "assigned" && agent.targetLat !== null) {
       const STEP = 0.004 // ~400m per tick
-      const dLat = agent.targetLat - agent.lat
-      const dLng = agent.targetLng - agent.lng
-      const dist = Math.sqrt(dLat * dLat + dLng * dLng)
+      const route = agentRoutes.get(agent.id)
 
-      if (dist < STEP) {
-        // Agent arrived
-        agent.lat = agent.targetLat
-        agent.lng = agent.targetLng
-        agent.status = "busy"
-        agent.stepProgress = 100
+      if (route && route.waypoints.length >= 2) {
+        // ── Follow road waypoints ──
+        let budget = STEP
+        while (budget > 0.0001 && route.waypointIdx < route.waypoints.length - 1) {
+          const nextWp = route.waypoints[route.waypointIdx + 1]
+          const dLat = nextWp[0] - agent.lat
+          const dLng = nextWp[1] - agent.lng
+          const segDist = Math.sqrt(dLat * dLat + dLng * dLng)
+
+          if (segDist <= budget) {
+            // Reached this waypoint, advance to next
+            agent.lat = nextWp[0]
+            agent.lng = nextWp[1]
+            budget -= segDist
+            route.waypointIdx++
+          } else {
+            // Partial move along this segment
+            const ratio = budget / segDist
+            agent.lat += dLat * ratio
+            agent.lng += dLng * ratio
+            budget = 0
+          }
+        }
+
+        // Calculate overall progress
+        const totalWp = route.waypoints.length - 1
+        const progress = totalWp > 0 ? Math.round((route.waypointIdx / totalWp) * 100) : 0
+        agent.stepProgress = Math.min(99, progress)
+
+        // Check if arrived at final destination
+        const toTarget = Math.sqrt(
+          (agent.targetLat - agent.lat) ** 2 + (agent.targetLng - agent.lng) ** 2
+        )
+        if (toTarget < STEP || route.waypointIdx >= route.waypoints.length - 1) {
+          agent.lat = agent.targetLat
+          agent.lng = agent.targetLng
+          agent.status = "busy"
+          agent.stepProgress = 100
+          agentRoutes.delete(agent.id)
+        }
       } else {
-        // Move toward target
-        const ratio = STEP / dist
-        agent.lat += dLat * ratio
-        agent.lng += dLng * ratio
-        agent.stepProgress = Math.min(99, agent.stepProgress + 5)
+        // ── Straight-line fallback (no route yet) ──
+        const dLat = agent.targetLat - agent.lat
+        const dLng = agent.targetLng - agent.lng
+        const dist = Math.sqrt(dLat * dLat + dLng * dLng)
+
+        if (dist < STEP) {
+          agent.lat = agent.targetLat
+          agent.lng = agent.targetLng
+          agent.status = "busy"
+          agent.stepProgress = 100
+          agentRoutes.delete(agent.id)
+        } else {
+          const ratio = STEP / dist
+          agent.lat += dLat * ratio
+          agent.lng += dLng * ratio
+          agent.stepProgress = Math.min(99, agent.stepProgress + 5)
+        }
       }
     }
 
@@ -332,6 +443,7 @@ function freeAgent(agentId) {
     agent.targetLng = null
     agent.stepProgress = 0
     agent.fuel_level = Math.min(100, agent.fuel_level + 20) // refuel on return
+    agentRoutes.delete(agentId)
     console.log(`[AGENT] ${agentId} is now idle (task resolved)`)
   }
 }
@@ -354,6 +466,7 @@ function failAgent(agentId) {
     agent.targetLat = null
     agent.targetLng = null
     agent.stepProgress = 0
+    agentRoutes.delete(agentId)
     console.log(`[AGENT] ⚠️ ${agentId} FAILED (Breakdown simulated)`)
     return { agent, failedTask }
   }
@@ -371,6 +484,7 @@ function getAgentById(id) {
 
 function resetAgents() {
   agents = generateAgents()
+  agentRoutes.clear()
 }
 
 module.exports = {
