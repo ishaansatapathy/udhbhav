@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: saarthi-backend
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
